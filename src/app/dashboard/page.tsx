@@ -26,7 +26,6 @@ export default async function DashboardPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="font-serif text-3xl">Your events</h1>
-          <p className="text-sm text-neutral-500">{user.email}</p>
         </div>
         <Link href="/events/new">
           <Button>

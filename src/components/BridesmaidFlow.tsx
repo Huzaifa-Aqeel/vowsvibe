@@ -446,8 +446,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      {/* ── LOADING: resuming a saved session, avoids flashing the name form ── */}
+<div className={step === "name" ? "w-full" : "mx-auto max-w-6xl"}>      {/* ── LOADING: resuming a saved session, avoids flashing the name form ── */}
       {step === "loading" && (
         <div className="flex min-h-[80vh] items-center justify-center py-6">
           <div className="flex flex-col items-center gap-3 text-stone-400">
@@ -460,7 +459,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       {/* ── STEP 1: NAME ENTRY ── */}
       {step === "name" && (
         <div className="-mx-5 -my-7 sm:-mx-8 sm:-my-10">
-          <AuthSplitLayout eyebrow="Your private fitting room">
+          <AuthSplitLayout eyebrow="Your private fitting room" role="bridesmaid">
             <Card className="border-stone-200/80 bg-white p-7 shadow-[0_24px_70px_-35px_rgba(28,25,23,0.35)] sm:p-9">
               <div className="mb-8">
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-rose-700">You&apos;re invited</p>

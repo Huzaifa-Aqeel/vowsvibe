@@ -115,8 +115,7 @@ export function EventForm() {
         <p className="mb-3 -mt-1 text-xs text-neutral-500">
           Add up to four example dresses. After upload, tell us the dress color palette; we use that named palette consistently for match analysis and lineup filtering.
         </p>
-        <div className="grid grid-cols-2 gap-3">
-          {exampleDresses.map((d, i) => (
+<div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">          {exampleDresses.map((d, i) => (
             <DressDropzone
               key={i}
               folder="catalog-dresses/bride"

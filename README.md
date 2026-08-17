@@ -102,7 +102,7 @@ Bride
 
 ### 1. Installation
 ```bash
-git clone <YOUR_REPOSITORY_URL>
+git clone
 cd vows-and-vibe
 npm install
 ```
@@ -117,6 +117,7 @@ Create a `.env.local` file based on `.env.example`:
 
 ### 4. Run the App
 ```bash
+npm run build
 npm run dev
 ```
 

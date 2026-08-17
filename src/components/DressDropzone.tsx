@@ -10,6 +10,7 @@ import type { SwatchColor } from "@/lib/types";
 export interface DressColorMeta {
   primaryHex: string | null;
   colorName: string | null;
+  family?: string | null;
 }
 
 interface DressDropzoneProps {
@@ -126,7 +127,7 @@ export function DressDropzone({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           colorLabel: colorLabel.trim(),
-          palette: paletteOptions.map((swatch) => ({ name: swatch.name, hex: swatch.hex })),
+          palette: paletteOptions.map((swatch) => ({ name: swatch.name, hex: swatch.hex, family: swatch.family })),
         }),
       });
       const json = await res.json();
@@ -135,6 +136,7 @@ export function DressDropzone({
 onUploaded(uploadedUrl, uploadedPath, {
   primaryHex: typeof json.primaryHex === "string" ? json.primaryHex : null,
   colorName: colorLabel.trim(),
+  family: typeof json.family === "string" ? json.family : null,
 });
       setColorPromptOpen(false);
       setColorLabel("");

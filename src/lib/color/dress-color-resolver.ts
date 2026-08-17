@@ -1,3 +1,5 @@
+import { colorFamilyFromHex, type ColorFamily } from "@/lib/color/palette-matching";
+
 /**
  * Text-only dress color resolver.
  *
@@ -17,10 +19,12 @@
 export interface DressColorPaletteOption {
   name: string;
   hex: string;
+  family?: string | null;
 }
 
 export interface DressColorResolution {
   primaryHex: string;
+  family: ColorFamily;
 }
 
 const GROQ_BASE =
@@ -58,8 +62,15 @@ function parseResolution(raw: string): DressColorResolution | null {
       return null;
     }
 
+    const primaryHex = parsed.primaryHex.toUpperCase();
+    const family = typeof parsed.family === "string" && parsed.family ? parsed.family.toLowerCase() : null;
+    const fallbackFamily = colorFamilyFromHex(primaryHex);
+    const allowed = new Set(["red", "pink", "purple", "blue", "green", "neutral", "dark"]);
+    const resolvedFamily = family && allowed.has(family) ? family as ColorFamily : fallbackFamily;
+    if (!resolvedFamily) return null;
     return {
-      primaryHex: parsed.primaryHex.toUpperCase(),
+      primaryHex,
+      family: resolvedFamily,
     };
   } catch {
     return null;
@@ -80,13 +91,15 @@ function buildPrompt(input: string): string {
     "- Do not infer anything from an image; you have text only.",
     "- Use a standard, widely recognized representative color value.",
     "- Return exactly one 6-digit sRGB hexadecimal value.",
+    "- Also classify the color into exactly one broad hue family: red, pink, purple, blue, green, neutral, or dark.",
+    "- Treat family as a broad hue family, not a fashion brand/category.",
     "- Do not explain your answer.",
     "- Do not include markdown.",
     "- Do not include reasoning.",
-    "- Do not include any keys other than primaryHex.",
+    "- Return only the requested primaryHex and family keys.",
     "",
     'Return exactly this JSON shape:',
-    '{"primaryHex":"#RRGGBB"}',
+    '{"primaryHex":"#RRGGBB","family":"green"}',
     "",
     `Color label: ${input}`,
   ].join("\n");
@@ -192,6 +205,7 @@ export async function resolveDressColor(
   if (exactPalette) {
     return {
       primaryHex: exactPalette.hex.toUpperCase(),
+      family: (exactPalette.family as ColorFamily | undefined) ?? colorFamilyFromHex(exactPalette.hex) ?? "neutral",
     };
   }
 

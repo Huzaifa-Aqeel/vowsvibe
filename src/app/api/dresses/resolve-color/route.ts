@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
             const value = item as Record<string, unknown>;
             return typeof value.name === "string" && typeof value.hex === "string";
           })
-          .map((item: { name: string; hex: string }): DressColorPaletteOption => ({ name: item.name, hex: item.hex }))
+          .map((item: { name: string; hex: string; family?: string }): DressColorPaletteOption => ({ name: item.name, hex: item.hex, family: item.family ?? null }))
       : [];
 
     const result = await resolveDressColor(colorLabel, palette);

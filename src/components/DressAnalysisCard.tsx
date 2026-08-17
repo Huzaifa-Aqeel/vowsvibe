@@ -17,7 +17,7 @@ export function DressAnalysisCard({
   url: string;
   alt: string;
   analysis: DressAnalysisResult;
-  bridePaletteMatch?: "palette" | "custom" | null;
+  bridePaletteMatch?: "palette" | "family" | "custom" | null;
   onSelect: () => void;
   disabled?: boolean;
   initialAnalysisOpen?: boolean;
@@ -93,11 +93,25 @@ export function DressAnalysisCard({
               <span className="mt-3 inline-flex w-fit items-center rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
                 ✓ Bride&apos;s palette match
               </span>
+            ) : bridePaletteMatch === "family" ? (
+              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-rose-50 px-2.5 py-1 text-[9px] font-semibold text-rose-700 ring-1 ring-rose-100">
+                ✓ Bride&apos;s suggested palette family match
+              </span>
             ) : bridePaletteMatch === "custom" ? (
               <span className="mt-3 inline-flex w-fit items-center rounded-full bg-stone-100 px-2.5 py-1 text-[9px] font-semibold text-stone-700">
                 Custom shade · outside the bride&apos;s palette
               </span>
             ) : null}
+
+            {analysis.contextSuggestions && analysis.contextSuggestions.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {analysis.contextSuggestions.map((suggestion) => (
+                  <span key={suggestion} className="inline-flex items-center rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[9px] font-medium text-stone-600">
+                    {suggestion}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
               <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">{analysis.explanationTitle}</p>

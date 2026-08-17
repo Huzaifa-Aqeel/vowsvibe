@@ -15,8 +15,7 @@ import {
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
-import { hexToLab } from "@/lib/color/undertone";
-import { ciede2000 } from "@/lib/color/dress-analyzer";
+import { matchesPaletteMode } from "@/lib/color/palette-matching";
 
 const FABRIC_CDN = "https://cdn.jsdelivr.net/npm/fabric@6.7.1/dist/index.min.js";
 const MIN_SCALE = 0.5;
@@ -105,40 +104,19 @@ function clampScale(scale: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(scale * 10) / 10));
 }
 
-function normalizePaletteName(value: string | null | undefined) {
-  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
-}
-
-function nearestPaletteIndex(hex: string | null, palette: SwatchColor[]) {
-  if (!hex || !palette.length) return -1;
-  try {
-    const dressLab = hexToLab(hex);
-    let best = 0;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    palette.forEach((swatch, index) => {
-      const distance = ciede2000(dressLab, hexToLab(swatch.hex));
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = index;
-      }
-    });
-    return best;
-  } catch {
-    return -1;
-  }
-}
-
-function matchesPalette(
+function matchesSwatch(
   participant: Pick<ParticipantRow, "confirmed_dress_primary_hex" | "confirmed_dress_color_name">,
-  swatchIndex: number,
+  swatch: SwatchColor,
   palette: SwatchColor[],
-  mode: "exact" | "closest",
+  mode: "palette" | "family" | "other",
 ) {
-  if (swatchIndex < 0 || !palette[swatchIndex]) return false;
-  if (mode === "exact") {
-    return normalizePaletteName(participant.confirmed_dress_color_name) === normalizePaletteName(palette[swatchIndex].name);
-  }
-  return nearestPaletteIndex(participant.confirmed_dress_primary_hex ?? null, palette) === swatchIndex;
+  return matchesPaletteMode(
+    participant.confirmed_dress_color_name,
+    participant.confirmed_dress_primary_hex ?? null,
+    palette,
+    swatch,
+    mode,
+  );
 }
 
 function defaultPosition(participant: ParticipantRow, index: number, participants: ParticipantRow[]): LineupPosition {
@@ -167,13 +145,45 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [selectedScale, setSelectedScale] = useState(1);
   const [positions, setPositions] = useState<Record<string, LineupPosition>>(initialPositions);
   const [activeSwatch, setActiveSwatch] = useState<string | null>(null);
-  const [paletteMatchMode, setPaletteMatchMode] = useState<"exact" | "closest">("exact");
+  const [paletteMatchMode, setPaletteMatchMode] = useState<"palette" | "family" | "other">("palette");
   const [geometryVersion, setGeometryVersion] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestionMode, setSuggestionMode] = useState(false);
   const suggestionModeRef = useRef(false);
+  const [scaleMode, setScaleMode] = useState(false);
+  const scaleModeRef = useRef(false);
+
+  useEffect(() => {
+    scaleModeRef.current = scaleMode;
+  }, [scaleMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "s") return;
+
+      // Suggestions mode has priority; do not change canvas interaction while it is active.
+      if (suggestionModeRef.current) return;
+
+      // Never hijack typing in inputs, textareas, selects, or content-editable elements.
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setScaleMode((current) => !current);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const confirmedParticipants = useMemo(
     () => participants.filter((p) => p.status === "confirmed" && p.cutout_url),
@@ -187,29 +197,19 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
 const filteredIds = useMemo(() => {
   if (!activeSwatch) return null;
 
-  const swatchIndex = palette.findIndex(
-    (swatch) => swatch.id === activeSwatch
-  );
-
-  if (swatchIndex < 0) return null;
+  const swatch = palette.find((item) => item.id === activeSwatch);
+  if (!swatch) return null;
 
   const filtered = new Set(
     confirmedParticipants
       .filter((p) => p.role === "bridesmaid")
-      .filter((p) =>
-        matchesPalette(
-          p,
-          swatchIndex,
-          palette,
-          paletteMatchMode
-        )
-      )
+      .filter((p) => matchesSwatch(p, swatch, palette, paletteMatchMode))
       .map((p) => p.id)
   );
 
   console.log("[Palette Filter]", {
     mode: paletteMatchMode,
-    swatch: palette[swatchIndex].name,
+    swatch: swatch.name,
     count: filtered.size,
     participantIds: [...filtered],
   });
@@ -357,19 +357,35 @@ const filteredIds = useMemo(() => {
           refreshGeometry();
         };
         canvas.on("mouse:down", (e) => {
-          if (!suggestionModeRef.current || !e.target?.participantId) return;
-          const id = e.target.participantId;
-          if (id === bride?.id) {
-            syncSelectionPop(null);
-            setSelectedId(null);
+          const target = e.target;
+          if (!target?.participantId) return;
+
+          const id = target.participantId;
+
+          // Suggestions mode keeps its existing participant-targeting behavior.
+          if (suggestionModeRef.current) {
+            if (id === bride?.id) {
+              syncSelectionPop(null);
+              setSelectedId(null);
+              refreshGeometry();
+              return;
+            }
+            syncSelectionPop(id);
+            selectedIdRef.current = id;
+            setSelectedId(id);
+            setSelectedScale(clampScale(positions[id]?.scale ?? 1));
             refreshGeometry();
             return;
           }
-          syncSelectionPop(id);
-          selectedIdRef.current = id;
-          setSelectedId(id);
-          setSelectedScale(clampScale(positions[id]?.scale ?? 1));
-          refreshGeometry();
+
+          // Scale mode only establishes the selected participant. Fabric continues to
+          // handle normal dragging and object selection as before.
+          if (scaleModeRef.current) {
+            selectedIdRef.current = id;
+            setSelectedId(id);
+            setSelectedScale(clampScale(positions[id]?.scale ?? 1));
+            refreshGeometry();
+          }
         });
         canvas.on("selection:created", (e) => select(e.target));
         canvas.on("selection:updated", (e) => select(e.target));
@@ -615,26 +631,32 @@ const filteredIds = useMemo(() => {
           <div className="inline-flex rounded-full border border-white/60 bg-white/50 p-1 shadow-sm backdrop-blur-md" role="group" aria-label="Palette matching mode">
             <button
               type="button"
-              onClick={() => { vibrate(); setPaletteMatchMode("exact"); }}
-              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "exact" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+              onClick={() => { vibrate(); setPaletteMatchMode("palette"); }}
+              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "palette" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
             >
-              Exact Match
+              Palette Match
             </button>
             <button
               type="button"
-              onClick={() => { vibrate(); setPaletteMatchMode("closest"); }}
-              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "closest" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+              onClick={() => { vibrate(); setPaletteMatchMode("family"); }}
+              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "family" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
             >
-              Closest Match
+              Family Match
+            </button>
+            <button
+              type="button"
+              onClick={() => { vibrate(); setPaletteMatchMode("other"); }}
+              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "other" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+            >
+              Other
             </button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           {palette.map((swatch) => {
-            const swatchIndex = palette.findIndex((item) => item.id === swatch.id);
             const count = confirmedParticipants
               .filter((p) => p.role === "bridesmaid")
-              .filter((p) => matchesPalette(p, swatchIndex, palette, paletteMatchMode))
+              .filter((p) => matchesSwatch(p, swatch, palette, paletteMatchMode))
               .length;
             const active = activeSwatch === swatch.id;
             return (
@@ -656,7 +678,7 @@ const filteredIds = useMemo(() => {
                 <span className="mt-1 flex min-h-3 items-center justify-center gap-1">
                   {confirmedParticipants
   .filter((participant) => participant.role === "bridesmaid")
-  .filter((participant) => matchesPalette(participant, swatchIndex, palette, paletteMatchMode))
+  .filter((participant) => matchesSwatch(participant, swatch, palette, paletteMatchMode))
   .map((participant) => (
                       <span
                         key={participant.id}
@@ -674,6 +696,12 @@ const filteredIds = useMemo(() => {
 
       <div className="relative min-h-[460px] px-0 pb-24 pt-2 sm:min-h-[580px]">
         <canvas ref={canvasElementRef} className="relative z-10 block h-full w-full" />
+
+        {scaleMode && !suggestionMode && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-white/60 bg-white/70 px-3 py-1.5 text-[10px] font-medium text-stone-600 shadow-sm backdrop-blur-md">
+            Scale mode · Press S to exit
+          </div>
+        )}
 
         {!suggestionMode && selectedParticipant && selectedId && (
           <div

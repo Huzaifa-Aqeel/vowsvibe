@@ -210,8 +210,8 @@ export function LineupRow({
 
           {participants.map((p, index) => {
             const left = slotPosition(index, participants.length);
-            const isBack = p.role !== "bride" && index % 2 === 1;
-            const heightPct = isBack ? baseHeightPct * 0.88 : baseHeightPct;
+const isBack = p.role !== "bride" && index % 2 === 1;
+const heightPct = baseHeightPct;
             return (
               <div
                 key={p.id}

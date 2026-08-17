@@ -1,4 +1,5 @@
 import { hexToLab, type Lab, type Undertone } from "@/lib/color/undertone";
+import type { SwatchColor } from "@/lib/types";
 
 export interface YouCamProfile {
   skinHex: string;
@@ -12,6 +13,7 @@ export interface DressAnalysisResult {
   badgeLabel: string;
   explanationTitle: "Why this shade works" | "What to consider";
   reasons: string[];
+  contextSuggestions?: string[];
 }
 
 interface Lch {
@@ -39,9 +41,16 @@ interface Lch {
  * as a color-difference measurement, not as a claim that a dress is "X% likely" to suit
  * someone. The final number should be read as a compatibility score, not a probability.
  */
+export interface DressAnalysisContext {
+  dressColorName?: string | null;
+  bridePalette?: SwatchColor[];
+  confirmedBridesmaids?: Array<{ name: string; hex: string }>;
+}
+
 export function analyzeDressWithSkinAndHair(
   dressHex: string,
   profile: YouCamProfile,
+  context?: DressAnalysisContext,
 ): DressAnalysisResult {
   const skinLab = hexToLab(profile.skinHex);
   const hairLab = profile.hairHex ? hexToLab(profile.hairHex) : null;
@@ -95,12 +104,15 @@ export function analyzeDressWithSkinAndHair(
     ? buildPositiveReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore, deltaE })
     : buildConsiderationReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore, deltaE, washout });
 
+  const contextSuggestions = buildContextSuggestions(dressHex, context);
+
   return {
     score: finalScore,
     matchTier,
     badgeLabel,
     explanationTitle: isPositive ? "Why this shade works" : "What to consider",
     reasons: dedupeReasons(reasons).slice(0, 3),
+    contextSuggestions,
   };
 }
 
@@ -265,6 +277,42 @@ function buildConsiderationReasons(
   }
 
   return selected;
+}
+
+function buildContextSuggestions(
+  dressHex: string,
+  context?: DressAnalysisContext,
+): string[] {
+  if (!context) return [];
+
+  const suggestions: string[] = [];
+  const peers = (context.confirmedBridesmaids ?? []).filter((peer) => peer.hex && peer.name);
+  if (peers.length) {
+    let closest: { name: string; distance: number } | null = null;
+    const dressLab = hexToLab(dressHex);
+    for (const peer of peers) {
+      try {
+        const distance = ciede2000(dressLab, hexToLab(peer.hex));
+        if (!closest || distance < closest.distance) closest = { name: peer.name, distance };
+      } catch {
+        // Ignore malformed peer colors and keep the rest of the analysis intact.
+      }
+    }
+
+    if (closest) {
+      if (closest.distance <= 10) {
+        suggestions.push(`Very close in color to ${closest.name}'s confirmed dress.`);
+      } else if (closest.distance <= 20) {
+        suggestions.push(`Close in color to ${closest.name}'s confirmed dress.`);
+      } else if (closest.distance <= 35) {
+        suggestions.push(`Shares a similar color range with ${closest.name}'s confirmed dress.`);
+      } else {
+        suggestions.push(`A distinct color from the closest confirmed bridesmaid look (${closest.name}).`);
+      }
+    }
+  }
+
+  return suggestions;
 }
 
 function toLch(lab: Lab): Lch {

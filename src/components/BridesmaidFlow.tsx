@@ -12,11 +12,18 @@ import { PhotoFlipCard } from "@/components/PhotoFlipCard";
 import { PublicLineupBoard } from "@/components/PublicLineupBoard";
 import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
-import { hexToLab, type Undertone } from "@/lib/color/undertone";
-import { analyzeDressWithSkinAndHair, ciede2000, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
+import { type Undertone } from "@/lib/color/undertone";
+import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
+import { classifyPaletteRelationship } from "@/lib/color/palette-matching";
 import type { DressColorMeta } from "@/components/DressDropzone";
 
 type Step = "loading" | "name" | "studio" | "processing" | "preview" | "confirmed";
+
+interface ConfirmedBridesmaidColor {
+  id: string;
+  name: string;
+  hex: string;
+}
 
 interface Session {
   participantId: string;
@@ -88,38 +95,18 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // her profile is known instead of after an async pass over every dress image.
   const [dressBadges, setDressBadges] = useState<Record<string, DressAnalysisResult>>({});
   const [newlyAnalyzedDressUrl, setNewlyAnalyzedDressUrl] = useState<string | null>(null);
-  const [customDresses, setCustomDresses] = useState<Array<{ url: string; primaryHex: string | null; colorName: string | null }>>([]);
+  const [customDresses, setCustomDresses] = useState<Array<{ url: string; primaryHex: string | null; colorName: string | null; family: string | null }>>([]);
+  const [confirmedBridesmaids, setConfirmedBridesmaids] = useState<ConfirmedBridesmaidColor[]>([]);
   const [busy, setBusy] = useState(false);
   // These refs are used only by the required YouCam VTO task polling.
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGenRef = useRef(0);
-  function bridePaletteBadge(dressHex: string | null | undefined): "palette" | "custom" | null {
+  function bridePaletteBadge(dressHex: string | null | undefined, colorName?: string | null): "palette" | "family" | "custom" | null {
     if (!dressHex || !event.color_palette?.length) return null;
-    try {
-      const dressLab = hexToLab(dressHex);
-      let nearest = Number.POSITIVE_INFINITY;
-      for (const swatch of event.color_palette) {
-        // CIEDE2000, not raw Euclidean Lab distance — this is the same perceptual
-        // color-difference formula the dress % match already uses (see ciede2000 in
-        // dress-analyzer.ts), so "does this photo's hex read as the same color the bride
-        // picked" is judged the same way "is this dress far enough from her skin" is.
-        // Plain Euclidean Lab distance over/under-weights hue vs. lightness vs. chroma
-        // in a way CIEDE2000 corrects for, and was flagging same-named shades (e.g. two
-        // photos both use the same "Royal Blue" palette name) as "outside the palette"
-        // purely because of ordinary photo-to-photo lighting/fabric-sheen variance in the
-        // extracted hex, not because the color was actually a different shade.
-        const distance = ciede2000(dressLab, hexToLab(swatch.hex));
-        nearest = Math.min(nearest, distance);
-      }
-      // Threshold widened from the old raw-Euclidean 18 to a CIEDE2000-appropriate 15 —
-      // CIEDE2000 is a tighter, perceptually-corrected scale, so a smaller number here
-      // covers a comparably wide "same shade" band while still rejecting genuinely
-      // different colors. Tune empirically if real photos still slip through either way.
-      return nearest <= 15 ? "palette" : "custom";
-    } catch {
-      return null;
-    }
+    const relation = classifyPaletteRelationship(colorName, dressHex, event.color_palette);
+    return relation === "palette" ? "palette" : relation === "family" ? "family" : "custom";
   }
+
 
   // Resume an in-progress session (e.g. she closed the tab while VTO was processing, or
   // simply reopened the invite link later). Session lives in localStorage so it survives
@@ -160,7 +147,8 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
                   url: typeof obj.url === "string" ? obj.url : "",
                   primaryHex: typeof obj.primary_hex === "string" ? obj.primary_hex : null,
                   colorName: typeof obj.color_name === "string" ? obj.color_name : null,
-                                  };
+                  family: typeof obj.family === "string" ? obj.family : null,
+                };
               }));
             })
             .catch(() => undefined);
@@ -179,6 +167,25 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/events/${event.id}/lineup`)
+      .then((response) => response.json())
+      .then((json) => {
+        if (cancelled || !Array.isArray(json.participants)) return;
+        setConfirmedBridesmaids(
+          json.participants
+            .filter((participant: { role?: string; id?: string; confirmed_dress_primary_hex?: string | null }) => participant.role === "bridesmaid" && participant.id !== session?.participantId)
+            .filter((participant: { confirmed_dress_primary_hex?: string | null }) => typeof participant.confirmed_dress_primary_hex === "string")
+            .map((participant: { id: string; name: string; confirmed_dress_primary_hex: string }) => ({ id: participant.id, name: participant.name, hex: participant.confirmed_dress_primary_hex })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setConfirmedBridesmaids([]);
+      });
+    return () => { cancelled = true; };
+  }, [event.id, session?.participantId]);
+
   // Dress analysis is deliberately render-time math. The DB already has the participant
   // skin/hair hex values and Grok has already read the dress primaryHex, so refreshes do not
   // trigger another model call.
@@ -190,19 +197,23 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
     const next: Record<string, DressAnalysisResult> = {};
     const allDresses = [
-      ...(event.example_dresses ?? []).map((d) => ({ url: d.url, primaryHex: d.primaryHex ?? null })),
-      ...customDresses.map((d) => ({ url: d.url, primaryHex: d.primaryHex })),
+      ...(event.example_dresses ?? []).map((d) => ({ url: d.url, primaryHex: d.primaryHex ?? null, colorName: d.colorName ?? null })),
+      ...customDresses.map((d) => ({ url: d.url, primaryHex: d.primaryHex, colorName: d.colorName })),
     ];
     for (const d of allDresses) {
       if (!d.primaryHex) continue;
       try {
-        next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile);
+        next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile, {
+          dressColorName: d.colorName,
+          bridePalette: event.color_palette ?? [],
+          confirmedBridesmaids,
+        });
       } catch (err) {
         console.error("Dress compatibility scoring failed for", d.url, err);
       }
     }
     setDressBadges(next);
-  }, [photoUrl, skinToneHex, hairToneHex, undertone, event.example_dresses, customDresses]);
+  }, [photoUrl, skinToneHex, hairToneHex, undertone, event.example_dresses, event.color_palette, customDresses, confirmedBridesmaids]);
 
   async function joinEvent(e: React.FormEvent) {
     e.preventDefault();
@@ -338,7 +349,11 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
     setDressBadges((current) => ({
       ...current,
-      [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile),
+      [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile, {
+        dressColorName: dressMeta?.colorName ?? null,
+        bridePalette: event.color_palette ?? [],
+        confirmedBridesmaids,
+      }),
     }));
   }
     setStep("processing");
@@ -533,9 +548,9 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                         url={d.url}
                         alt={d.label ?? "Dress"}
                         analysis={dressBadges[d.url]}
-                        bridePaletteMatch={bridePaletteBadge(d.primaryHex)}
+                        bridePaletteMatch={bridePaletteBadge(d.primaryHex, d.colorName)}
                         initialAnalysisOpen={newlyAnalyzedDressUrl === d.url}
-                        onSelect={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName })}
+                        onSelect={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
                         disabled={!photoUrl}
                         actionLabel="Try this dress"
                       />
@@ -543,7 +558,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                       <button
                         type="button"
                         disabled={!photoUrl}
-                        onClick={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName })}
+                        onClick={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
                         className="group relative block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-stone-100 text-left ring-offset-2 transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-rose-400"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -565,6 +580,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                       url,
                       primaryHex: meta?.primaryHex ?? null,
                       colorName: meta?.colorName ?? null,
+                      family: meta?.family ?? null,
                     };
                     setCustomDresses((current) => current.some((d) => d.url === url) ? current : [uploaded, ...current]);
                     setNewlyAnalyzedDressUrl(url);
@@ -577,7 +593,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                             storage_path: path,
                             primary_hex: uploaded.primaryHex,
                             color_name: uploaded.colorName,
-                                                      }),
+                            family: uploaded.family,
+                          }),
                         });
                         if (!resp.ok) console.error("Failed to save uploaded bridesmaid dress", await resp.text());
                       } catch (err) {

@@ -5,6 +5,7 @@ A collaborative bridal-party styling workspace with AI virtual try-on, skin-tone
 Bridal-party styling is usually a messy combination of group chats, boards, and disconnected screenshots. VOWS&VIBE brings that process into one workspace: the bride defines the styling brief, bridesmaids try dresses virtually, and the final looks come together in a shared, interactive 2D lineup.
 
 ## Core Features
+### Bride Flow
 
 The bride signs in via Google, creates an event, and defines the dress length, fabric, color palette, and example dresses. She can upload a full-body photo and a selfie for analysis. The app uses YouCam Skin Tone Analysis to obtain skin and hair color HEX values and YouCam AI Clothes Changer to generate multiple VTO attempts. VTO history is normalized in the database (vto_attempts table), allowing users to switch between previous renders without losing state.
 
@@ -18,15 +19,13 @@ Bridesmaids join via an invite link and do not need to create accounts. A server
 * **Bride Export:** Only the bride can download the current canvas composition as a PNG.
 * **Suggestions:** Each participant can turn **Suggestions ON or OFF**. When enabled, clicking another participant on the lineup selects that person as the suggestion recipient, allowing the sender to leave a text suggestion.
 * **Color Harmony Filtering:** The bride can filter the lineup by selecting a palette swatch. The lineup provides two matching modes:
-  * **Family Match:** dress is closest match among the brides palette color in the same color family to CIE Lab and compared against every palette swatch using 
+  * **Family Match:**The dress is compared only with palette colors in the same color family. The closest match is selected using circular hue-angle distance 
   * **Exact Match:** Uses normalized palette-color names to identify participants whose stored dress color matches the selected palette color exactly.
   * **Other:** outside the selected palette family
 
 ### Color Science & Compatibility Logic
 
 Vows & Vibe uses **CIEDE2000 (ΔE00)** as part of its color-analysis and styling intelligence. Dress and skin/hair colors are converted to **CIE Lab** before perceptual color calculations.
-
-For the lineup's **Palette Match / Family Match / Other** filters, Palette Match uses normalized color-name equality, while Family Match uses circular hue-angle distance classification and selects the closest same-family palette color.
 
 In the **Bridesmaid Studio**, CIEDE2000 is additionally used to compare a newly selected bridesmaid dress against the colors of confirmed bridesmaid dresses and surface a relevant styling suggestion.
 

@@ -1,16 +1,15 @@
 # Vows & Vibe
 
-An AI-powered bridal-party styling workflow and collaborative 2D lineup canvas. Built for the Perfect Corp / YouCam AI Hackathon.
+A collaborative bridal-party styling workspace with AI virtual try-on, skin-tone-based dress analysis, and a shared 2D lineup canvas.
 
-Bridal-party styling is usually a messy combination of group chats, Pinterest boards, and disconnected screenshots. Vows & Vibe consolidates this into a single workspace: a bride defines the styling brief, bridesmaids try on dresses virtually, and the final looks are composed into a shared, interactive 2D lineup.
+Bridal-party styling is usually a messy combination of group chats, boards, and disconnected screenshots. VOWS&VIBE brings that process into one workspace: the bride defines the styling brief, bridesmaids try dresses virtually, and the final looks come together in a shared, interactive 2D lineup.
 
 ## Core Features
 
-### Bride Event Creation & Studio
-The bride signs in via Google, creates an event, and defines dress length, fabric, and a color palette. She can upload a full-body photo and a selfie for analysis. The app uses the **YouCam Skin Tone Analysis** to obtain skin and hair color HEX values and use the **YouCam AI Clothes Changer** to render multiple VTO attempts. VTO history is normalized in the database (`vto_attempts` table) so users can toggle between previous renders without losing state.
+The bride signs in via Google, creates an event, and defines the dress length, fabric, color palette, and example dresses. She can upload a full-body photo and a selfie for analysis. The app uses YouCam Skin Tone Analysis to obtain skin and hair color HEX values and YouCam AI Clothes Changer to generate multiple VTO attempts. VTO history is normalized in the database (vto_attempts table), allowing users to switch between previous renders without losing state.
 
 ### Bridesmaid Invite Flow
-Bridesmaids join via an invite link and do not need to create accounts. A server-stored session token allows them to resume their progress on the same device. She can upload a full-body photo and a selfie for analysis. The app uses the **YouCam Skin Tone Analysis** to obtain skin and hair color HEX values and use the **YouCam AI Clothes Changer API** to render multiple VTO attempts,VTO history is normalized in the database (`vto_attempts` table) so users can toggle between previous renders without losing state
+Bridesmaids join via an invite link and do not need to create accounts. A server-stored session token allows them to login and resume their progress on the same device. She can upload a full-body photo and a selfie for analysis. The app uses the **YouCam Skin Tone Analysis** to obtain skin and hair color HEX values and use the **YouCam AI Clothes Changer API** to render multiple VTO attempts,VTO history is normalized in the database (`vto_attempts` table) so users can toggle between previous renders without losing state
 
 ### Collaborative 2D Lineup Canvas
 * **Canvas Controls:** Participants can be dragged, scaled, layered, and repositioned.
@@ -146,11 +145,6 @@ src/
 │   └── youcam/            # Perfect Corp API integration
 └── middleware.ts          # Supabase auth session refresh
 ```
-## Consumer & Retail Value
-
-Vows & Vibe addresses the fragmented reality of bridal-party shopping—where decisions are usually scattered across group chats, screenshots, and Pinterest boards. By placing the bride and her bridesmaids in a single shared workspace, the app streamlines the shortlisting process. Bridesmaids join effortlessly via a link without creating an account, use YouCam virtual try-on to test looks, and feed those renders directly into a shared 2D lineup. By pairing personal color analysis—evaluating undertones, lightness, and contrast—with this group view, the app ensures dresses look cohesive together, rather than just in isolation.
-
-For retailers and bridal salons, the platform serves as an efficient pre-fitting consultation tool. Stylists can curate palettes and help clients narrow down shortlists virtually before in-person fittings begin. By moving the shade comparison process upstream, the app reduces back-and-forth communication and helps prevent costly purchasing mistakes. The value isn't about replacing the stylist or the fitting room; it's about helping customers shortlist, compare, and align on a final group look before they even step into the store.
 
 **Disclaimer:** The color analysis is intended as guidance rather than a strict rule. It provides a mathematical way to compare colors using undertone, lightness, contrast, and perceptual color difference, but the final choice always remains with the bride and the person wearing the dress.
 

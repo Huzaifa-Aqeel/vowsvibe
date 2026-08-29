@@ -28,6 +28,7 @@ function tokenQuery(token?: string | null) {
 
 export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onEnabledChange }: Props) {
   const [enabled, setEnabled] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const dismissedSuggestionIdsRef = useRef<Set<string>>(new Set());
   const [text, setText] = useState("");
@@ -36,6 +37,10 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   const [error, setError] = useState<string | null>(null);
 
   const authQuery = tokenQuery(currentParticipantToken);
+
+  useEffect(() => {
+    if (enabled && target && target.id !== currentParticipantId) setPanelOpen(true);
+  }, [enabled, target, currentParticipantId]);
 
   async function refresh() {
     if (!currentParticipantId) return;
@@ -46,6 +51,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
       if (!response.ok) throw new Error(json.error ?? "Could not load suggestions");
       const nextEnabled = Boolean(json.suggestions_enabled);
       setEnabled(nextEnabled);
+      if (!nextEnabled) setPanelOpen(false);
       onEnabledChange?.(nextEnabled);
       const incoming = (json.suggestions ?? []) as SuggestionItem[];
       setSuggestions(incoming.filter((suggestion) => !dismissedSuggestionIdsRef.current.has(suggestion.id)));
@@ -111,6 +117,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
       const nextEnabled = Boolean(json.participant?.suggestions_enabled);
       setEnabled(nextEnabled);
       onEnabledChange?.(nextEnabled);
+      if (!nextEnabled) setPanelOpen(false);
       setText("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update suggestion setting");
@@ -149,79 +156,115 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   if (!currentParticipantId) return null;
 
   return (
-    <div className={`rounded-2xl border border-white/70 bg-white/60 px-3 py-2 shadow-sm backdrop-blur-xl ${className}`}>
-      <div className="flex items-center justify-between gap-3">
+    <div className={`pointer-events-none flex flex-col items-end gap-2 ${className}`}>
+      {enabled && panelOpen && (
+        <div className="suggestion-sheet pointer-events-auto border border-white/80 bg-white/95 p-4 shadow-2xl shadow-stone-900/20 backdrop-blur-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-rose-700">Suggestions</p>
+              <p className="truncate text-sm font-semibold text-stone-900">
+                {target && target.id !== currentParticipantId ? `About ${target.name}` : "Messages"}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Minimize suggestions"
+              title="Minimize suggestions"
+              onClick={() => setPanelOpen(false)}
+              className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-500 transition active:bg-stone-100 active:text-stone-900 sm:hover:bg-stone-100 sm:hover:text-stone-900"
+            >
+              <X size={15} />
+            </button>
+          </div>
+
+          {suggestions.length > 0 && (
+            <div className="mt-3 space-y-1.5 border-t border-stone-200/70 pt-3">
+              {suggestions.slice(0, 3).map((suggestion) => (
+                <div key={suggestion.id} className="group flex items-start gap-2 rounded-xl bg-stone-50 px-2.5 py-2 text-[11px] leading-relaxed text-stone-700">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-semibold text-stone-900">{suggestion.from_name}:</span> {suggestion.text}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Dismiss suggestion"
+                    title="Dismiss suggestion"
+                    onClick={() => dismissSuggestion(suggestion.id)}
+                    className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-400 transition active:bg-white active:text-stone-700 sm:hover:bg-white sm:hover:text-stone-700"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {target && target.id !== currentParticipantId ? (
+            <div className="mt-3 border-t border-stone-200/70 pt-3">
+              <p className="mb-2 text-[10px] text-stone-500">Send a suggestion about <span className="font-semibold text-stone-800">{target.name}</span></p>
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={text}
+                  onChange={(event) => setText(event.target.value.slice(0, 500))}
+                  rows={2}
+                  maxLength={500}
+                  placeholder="Any helpful thought…"
+                  className="min-h-[58px] flex-1 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-stone-800 outline-none placeholder:text-stone-400 focus:border-rose-300"
+                />
+                <button
+                  type="button"
+                  disabled={busy || !text.trim()}
+                  onClick={() => void sendSuggestion()}
+                  className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full bg-stone-900 text-white shadow-sm transition active:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-40 sm:hover:bg-rose-950"
+                  title={`Send suggestion about ${target.name}`}
+                >
+                  <Send size={15} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 border-t border-stone-200/70 pt-3 text-xs text-stone-500">Select another person in the lineup to start a suggestion.</p>
+          )}
+
+          {loading && suggestions.length === 0 && <p className="mt-2 text-[10px] text-stone-400">Loading…</p>}
+          {error && <p className="mt-2 text-[10px] font-medium text-red-600">{error}</p>}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        {enabled && (
+          <button
+            type="button"
+            aria-label={panelOpen ? "Minimize suggestions" : "Open suggestions"}
+            title={panelOpen ? "Minimize suggestions" : "Open suggestions"}
+            onClick={() => setPanelOpen((current) => !current)}
+            className="pointer-events-auto relative grid h-14 w-14 touch-manipulation place-items-center rounded-full border border-white/70 bg-stone-900 text-white shadow-xl shadow-stone-900/25 transition active:bg-rose-950 sm:hover:-translate-y-0.5 sm:hover:bg-rose-950"
+          >
+            <MessageCircle size={22} />
+            {suggestions.length > 0 && (
+              <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-rose-600 px-1 text-[9px] font-bold text-white">
+                {suggestions.length > 99 ? "99+" : suggestions.length}
+              </span>
+            )}
+          </button>
+        )}
+
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/80 bg-white/85 px-3 py-2 shadow-lg backdrop-blur-xl">
         <div className="flex min-w-0 items-center gap-2">
           <MessageCircle size={14} className="shrink-0 text-rose-700" />
           <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-600">Suggestions</span>
-          {suggestions.length > 0 && (
-            <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">{suggestions.length}</span>
-          )}
         </div>
         <button
           type="button"
           aria-pressed={enabled}
           disabled={busy}
           onClick={() => void toggleEnabled()}
-          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition ${enabled ? "border-stone-900 bg-stone-900" : "border-stone-300 bg-stone-200"}`}
+          className={`relative inline-flex h-11 w-14 shrink-0 touch-manipulation items-center rounded-full border transition ${enabled ? "border-stone-900 bg-stone-900" : "border-stone-300 bg-stone-200"}`}
           title={enabled ? "Turn suggestions off" : "Turn suggestions on"}
         >
-          <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-5" : "translate-x-1"}`} />
+          <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-7" : "translate-x-1.5"}`} />
         </button>
       </div>
-
-      {suggestions.length > 0 && (
-        <div className="mt-2 space-y-1.5 border-t border-stone-200/70 pt-2">
-          {suggestions.slice(0, 3).map((suggestion) => (
-            <div key={suggestion.id} className="group flex items-start gap-2 rounded-xl bg-white/75 px-2.5 py-2 text-[11px] leading-relaxed text-stone-700">
-              <div className="min-w-0 flex-1">
-                <span className="font-semibold text-stone-900">{suggestion.from_name}:</span> {suggestion.text}
-              </div>
-              <button
-                type="button"
-                aria-label="Dismiss suggestion"
-                title="Dismiss suggestion"
-                onClick={() => dismissSuggestion(suggestion.id)}
-                className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-stone-400 opacity-70 transition hover:bg-stone-100 hover:text-stone-700 group-hover:opacity-100"
-              >
-                <X size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {enabled && target && target.id !== currentParticipantId && (
-        <div className="mt-2 border-t border-stone-200/70 pt-2">
-          <p className="mb-1.5 text-[10px] text-stone-500">Suggest to <span className="font-semibold text-stone-800">{target.name}</span></p>
-          <div className="flex items-end gap-2">
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value.slice(0, 500))}
-              rows={2}
-              maxLength={500}
-              placeholder="Any helpful thought…"
-              className="min-h-[52px] flex-1 resize-none rounded-xl border border-stone-200 bg-white/85 px-2.5 py-2 text-xs text-stone-800 outline-none ring-0 placeholder:text-stone-400 focus:border-rose-300"
-            />
-            <button
-              type="button"
-              disabled={busy || !text.trim()}
-              onClick={() => void sendSuggestion()}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-stone-900 text-white shadow-sm transition hover:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-40"
-              title={`Send suggestion to ${target.name}`}
-            >
-              <Send size={14} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {enabled && !target && (
-        <p className="mt-2 border-t border-stone-200/70 pt-2 text-[10px] text-stone-500">Select another person in the lineup to suggest a change.</p>
-      )}
-
-      {loading && suggestions.length === 0 && <p className="mt-2 text-[10px] text-stone-400">Loading…</p>}
-      {error && <p className="mt-2 text-[10px] font-medium text-red-600">{error}</p>}
+      </div>
     </div>
   );
 }

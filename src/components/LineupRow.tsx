@@ -65,6 +65,7 @@ interface Props {
   title?: string;
   currentParticipantId?: string | null;
   currentParticipantToken?: string | null;
+  expanded?: boolean;
 }
 
 /**
@@ -82,6 +83,7 @@ export function LineupRow({
   title = "The bridal party",
   currentParticipantId = null,
   currentParticipantToken = null,
+  expanded = false,
 }: Props) {
   const [participants, setParticipants] = useState<ParticipantRow[]>(() => centeredLineup(initialParticipants));
   const [positions, setPositions] = useState<Record<string, LineupPosition>>(() => Object.fromEntries(
@@ -99,6 +101,7 @@ export function LineupRow({
   const prevRects = useRef(new Map<string, DOMRect>());
   const seenIds = useRef(new Set<string>(initialParticipants.filter((p) => p.status === "confirmed" && p.cutout_url).map((p) => p.id)));
   const [suggestionTargetId, setSuggestionTargetId] = useState<string | null>(null);
+  const [suggestionsEnabled, setSuggestionsEnabled] = useState(false);
 
   // No polling: the database emits a safe lineup_updates row only when a participant
   // actually becomes confirmed. We then make one public lineup read to get the complete,
@@ -176,22 +179,8 @@ export function LineupRow({
   const suggestionTarget = suggestionTargetId ? participants.find((p) => p.id === suggestionTargetId) ?? null : null;
 
   return (
-    <div>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-rose-700">Confirmed looks</p>
-          <h3 className="mt-1 font-serif text-2xl text-stone-900">{title}</h3>
-          <p className="mt-1 text-xs text-stone-500">Only fully confirmed VTO looks are placed here.</p>
-        </div>
-        {currentParticipantId && (
-          <SuggestionTools
-            eventId={eventId}
-            currentParticipantId={currentParticipantId}
-            currentParticipantToken={currentParticipantToken}
-            target={suggestionTarget}
-            className="w-full max-w-sm"
-          />
-        )}
+    <div className={expanded ? "flex h-full min-h-0 w-full flex-col" : undefined}>
+      <div className={`mb-5 shrink-0 flex-wrap items-end justify-between gap-3 ${expanded ? "mx-auto flex w-full max-w-5xl" : "flex"}`}>
       </div>
 
       {participants.length === 0 ? (
@@ -202,7 +191,12 @@ export function LineupRow({
           </div>
         </div>
       ) : (
-        <div className="relative aspect-[16/9] w-full overflow-hidden rounded-2xl bg-gradient-to-b from-stone-300 via-stone-200 to-stone-300 shadow-[0_1px_2px_rgba(28,25,23,0.06),0_10px_28px_-8px_rgba(28,25,23,0.22)] ring-1 ring-inset ring-white/50 sm:aspect-[21/9]">
+        <div className={`relative w-full overflow-hidden rounded-2xl bg-stone-300 shadow-[0_1px_2px_rgba(28,25,23,0.06),0_10px_28px_-8px_rgba(28,25,23,0.22)] ring-1 ring-inset ring-white/50 ${expanded ? "lineup-expanded-scene" : "aspect-[16/9] sm:aspect-[21/9]"}`}>
+          <div className="lineup-pan-surface absolute inset-0">
+            <div
+              className="relative h-full bg-gradient-to-b from-stone-300 via-stone-200 to-stone-300"
+              style={{ minWidth: participants.length > 6 ? `${participants.length * 16}%` : "100%" }}
+            >
           {/* Soft studio-backdrop feel without requiring a real venue photo asset. */}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_18%,rgba(255,255,255,0.4),transparent_58%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,transparent_55%,rgba(28,25,23,0.10)_100%)]" />
@@ -219,8 +213,8 @@ const heightPct = baseHeightPct;
                   if (el) figureRefs.current.set(p.id, el);
                   else figureRefs.current.delete(p.id);
                 }}
-                className={`absolute flex -translate-x-1/2 flex-col items-center ${currentParticipantId ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
-                onClick={() => currentParticipantId && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
+                className={`absolute flex -translate-x-1/2 touch-manipulation flex-col items-center ${currentParticipantId && suggestionsEnabled ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
+                onClick={() => currentParticipantId && suggestionsEnabled && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
                 style={{
                   left: positions[p.id] ? `${positions[p.id].x * 100}%` : `${left}%`,
                   bottom: positions[p.id] ? `${positions[p.id].y * 100}%` : isBack ? "6%" : "4%",
@@ -244,6 +238,22 @@ const heightPct = baseHeightPct;
               </div>
             );
           })}
+            </div>
+          </div>
+
+          {currentParticipantId && (
+            <SuggestionTools
+              eventId={eventId}
+              currentParticipantId={currentParticipantId}
+              currentParticipantToken={currentParticipantToken}
+              target={suggestionTarget}
+              onEnabledChange={(enabled) => {
+                setSuggestionsEnabled(enabled);
+                if (!enabled) setSuggestionTargetId(null);
+              }}
+              className="lineup-chat-controls absolute z-[200]"
+            />
+          )}
         </div>
       )}
     </div>

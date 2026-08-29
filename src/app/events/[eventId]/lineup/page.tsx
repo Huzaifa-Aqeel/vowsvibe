@@ -66,21 +66,23 @@ export default async function BrideLineupPage({ params }: { params: { eventId: s
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f2ee] px-4 py-5 sm:px-8 sm:py-8">
+    <main className="lineup-page-safe-studio min-h-screen bg-[#f7f2ee]">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Link href={`/events/${event.id}`} className="mb-3 inline-flex items-center gap-2 text-xs font-semibold text-stone-500 transition hover:text-stone-900">
-              <ArrowLeft size={14} /> Back to dashboard
-            </Link>
-            <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-rose-700">Bride lineup studio</p>
-            <h1 className="mt-1 font-serif text-3xl text-stone-900 sm:text-4xl">Compose the group photo</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-stone-500">
-              Arrange your bridal party just the way you want. Drag each look into place,and save your lineup. Everyone will see the latest arrangement in real time
-            </p>
-          </div>
+        <div className="mb-1 sm:mb-2">
+          <Link
+            href={`/events/${event.id}`}
+            className="inline-flex min-h-11 touch-manipulation items-center gap-2 text-xs font-semibold text-stone-500 transition active:text-stone-900 sm:hover:text-stone-900"
+          >
+            <ArrowLeft size={14} /> Back to dashboard
+          </Link>
+          <h1 className="font-serif text-xl leading-none text-stone-900 sm:text-2xl lg:text-3xl">Compose the group photo</h1>
+          <p className="mt-0.5 line-clamp-1 max-w-3xl text-xs leading-5 text-stone-500 sm:line-clamp-none">
+            Arrange your bridal party just the way you want. Drag each look into place, and save your lineup. Everyone will see the latest arrangement in real time.
+          </p>
         </div>
-        <LineupCanvas event={event} participants={pageParticipants} initialPositions={initialPositions} />
+        <div className="lineup-bride-full-width">
+          <LineupCanvas event={event} participants={pageParticipants} initialPositions={initialPositions} />
+        </div>
       </div>
     </main>
   );

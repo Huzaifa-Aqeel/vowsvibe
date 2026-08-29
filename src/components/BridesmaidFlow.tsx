@@ -14,7 +14,10 @@ import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
 import { type Undertone } from "@/lib/color/undertone";
 import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
-import { classifyPaletteRelationship } from "@/lib/color/palette-matching";
+import {
+  classifyBridalPaletteBadge,
+  type BridalPaletteBadge,
+} from "@/lib/color/palette-matching";
 import type { DressColorMeta } from "@/components/DressDropzone";
 
 type Step = "loading" | "name" | "studio" | "processing" | "preview" | "confirmed";
@@ -101,10 +104,11 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // These refs are used only by the required YouCam VTO task polling.
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGenRef = useRef(0);
-  function bridePaletteBadge(dressHex: string | null | undefined, colorName?: string | null): "palette" | "family" | "custom" | null {
-    if (!dressHex || !event.color_palette?.length) return null;
-    const relation = classifyPaletteRelationship(colorName, dressHex, event.color_palette);
-    return relation === "palette" ? "palette" : relation === "family" ? "family" : "custom";
+  function bridePaletteBadge(
+    dressHex: string | null | undefined,
+    colorName?: string | null,
+  ): BridalPaletteBadge | null {
+    return classifyBridalPaletteBadge(colorName, dressHex, event.color_palette ?? []);
   }
 
 
@@ -340,7 +344,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
   // Score the dress immediately when we have the resolved dress color
   // and the YouCam profile data.
-  if (primaryHex && skinToneHex && hairToneHex && undertone) {
+  if (primaryHex && skinToneHex && undertone) {
     const profile: YouCamProfile = {
       skinHex: skinToneHex,
       hairHex: hairToneHex,
@@ -461,7 +465,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
   }
 
   return (
-<div className={step === "name" ? "w-full" : "mx-auto max-w-6xl"}>      {/* ── LOADING: resuming a saved session, avoids flashing the name form ── */}
+<div className={step === "name" ? "w-full" : step === "confirmed" ? "lineup-confirmed-viewport mx-auto max-w-6xl" : "mx-auto max-w-6xl"}>      {/* ── LOADING: resuming a saved session, avoids flashing the name form ── */}
       {step === "loading" && (
         <div className="flex min-h-[80vh] items-center justify-center py-6">
           <div className="flex flex-col items-center gap-3 text-stone-400">
@@ -679,8 +683,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
       {/* ── STEP 6: CONFIRMED ── */}
       {step === "confirmed" && (
-        <section className="mx-auto max-w-5xl py-4">
-          <div className="mb-7 text-center">
+        <section className="mx-auto flex h-full min-h-0 max-w-5xl flex-col py-0">
+          <div className="mb-4 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blush-100 text-blush-700">
               <Check size={22} strokeWidth={2.5} />
             </div>
@@ -696,7 +700,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
               <RotateCcw size={14} /> Change your look
             </Button>
           </div>
-          <div className="rounded-3xl border border-blush-100 bg-white p-3 shadow-sm sm:p-4">
+          <div className="lineup-full-bleed relative flex min-h-0 flex-1 flex-col rounded-3xl border border-blush-100 bg-white p-3 shadow-sm sm:p-4">
             <PublicLineupBoard eventId={event.id} eventTitle={event.title} currentParticipantId={session?.participantId ?? null} currentParticipantToken={session?.token ?? null} />
           </div>
         </section>

@@ -17,7 +17,7 @@ export function DressAnalysisCard({
   url: string;
   alt: string;
   analysis: DressAnalysisResult;
-  bridePaletteMatch?: "palette" | "family" | "custom" | null;
+  bridePaletteMatch?: "palette" | "family" | "same-family" | "custom" | null;
   onSelect: () => void;
   disabled?: boolean;
   initialAnalysisOpen?: boolean;
@@ -97,9 +97,13 @@ export function DressAnalysisCard({
               <span className="mt-3 inline-flex w-fit items-center rounded-full bg-rose-50 px-2.5 py-1 text-[9px] font-semibold text-rose-700 ring-1 ring-rose-100">
                 ✓ Bride&apos;s suggested palette family match
               </span>
+            ) : bridePaletteMatch === "same-family" ? (
+              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-semibold text-amber-800 ring-1 ring-amber-100">
+                Bride&apos;s palette family · distinct shade
+              </span>
             ) : bridePaletteMatch === "custom" ? (
               <span className="mt-3 inline-flex w-fit items-center rounded-full bg-stone-100 px-2.5 py-1 text-[9px] font-semibold text-stone-700">
-                Custom shade · outside the bride&apos;s palette
+                Distinct from the bride&apos;s palette families
               </span>
             ) : null}
 

@@ -4,23 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  ChevronDown,
-  ChevronUp,
   Download,
   GripVertical,
-  Minus,
-  Plus,
   Save,
   Trash2,
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
-import { matchesPaletteMode } from "@/lib/color/palette-matching";
+import { classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
+import { browserFileActions } from "@/lib/platform/file-actions";
 
 const FABRIC_CDN = "https://cdn.jsdelivr.net/npm/fabric@6.7.1/dist/index.min.js";
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 1.5;
-const SCALE_STEP = 0.1;
+const OTHER_FILTER_ID = "all-other";
 
 interface FabricImageLike {
   participantId?: string;
@@ -37,6 +32,7 @@ interface FabricImageLike {
   getScaledWidth: () => number;
   getScaledHeight: () => number;
   applyFilters?: () => void;
+  getElement?: () => CanvasImageSource;
   selectable?: boolean;
   hasControls?: boolean;
   hoverCursor?: string;
@@ -100,10 +96,6 @@ interface Props {
   initialPositions: Record<string, LineupPosition>;
 }
 
-function clampScale(scale: number) {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(scale * 10) / 10));
-}
-
 function matchesSwatch(
   participant: Pick<ParticipantRow, "confirmed_dress_primary_hex" | "confirmed_dress_color_name">,
   swatch: SwatchColor,
@@ -133,16 +125,65 @@ function defaultPosition(participant: ParticipantRow, index: number, participant
   return { participant_id: participant.id, x, y: 0.07, scale: 1, z_index: brideIndex >= 0 ? 50 - index : 50 - ordinal, hidden: false };
 }
 
+function responsiveCanvasHeight(width: number, element: HTMLCanvasElement) {
+  const viewportHeight = document.documentElement.clientHeight;
+  const canvasTop = element.getBoundingClientRect().top;
+  // On desktop the lineup is the primary workspace: target 75dvh and bound it
+  // so very tall or short monitors still get a balanced composition. Mobile and
+  // short landscape screens continue to use only the measured remaining space.
+  if (width >= 768 && viewportHeight >= 700) {
+    return Math.round(Math.max(480, Math.min(760, viewportHeight * 0.75)));
+  }
+  // Reserve room for the overlaid action bar and the page's bottom breathing room.
+  const availableHeight = viewportHeight - canvasTop - 88;
+  return Math.max(280, Math.min(Math.round(width * 0.53), availableHeight));
+}
+
+function visiblePersonBounds(image: FabricImageLike) {
+  const source = image.getElement?.();
+  if (!source || !image.width || !image.height) return { height: image.height, bottomPadding: 0 };
+
+  try {
+    const sampleHeight = Math.min(512, Math.max(1, Math.round(image.height)));
+    const sampleWidth = Math.max(1, Math.round((image.width / image.height) * sampleHeight));
+    const sample = document.createElement("canvas");
+    sample.width = sampleWidth;
+    sample.height = sampleHeight;
+    const context = sample.getContext("2d", { willReadFrequently: true });
+    if (!context) return { height: image.height, bottomPadding: 0 };
+    context.drawImage(source, 0, 0, sampleWidth, sampleHeight);
+    const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+    let firstRow = sampleHeight;
+    let lastRow = -1;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        if (pixels[(y * sampleWidth + x) * 4 + 3] > 16) {
+          firstRow = Math.min(firstRow, y);
+          lastRow = Math.max(lastRow, y);
+        }
+      }
+    }
+    if (lastRow < firstRow) return { height: image.height, bottomPadding: 0 };
+    const sourceUnitsPerRow = image.height / sampleHeight;
+    return {
+      height: Math.max(1, (lastRow - firstRow + 1) * sourceUnitsPerRow),
+      bottomPadding: Math.max(0, (sampleHeight - lastRow - 1) * sourceUnitsPerRow),
+    };
+  } catch {
+    return { height: image.height, bottomPadding: 0 };
+  }
+}
+
 export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<FabricCanvasLike | null>(null);
   const objectMapRef = useRef(new Map<string, FabricImageLike>());
+  const baselineOffsetRef = useRef(new Map<string, number>());
   const stageRef = useRef<HTMLDivElement | null>(null);
   const swatchRefs = useRef(new Map<string, HTMLButtonElement>());
   const geometryRef = useRef(new Map<string, { x: number; y: number; width: number; height: number }>());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const [selectedScale, setSelectedScale] = useState(1);
   const [positions, setPositions] = useState<Record<string, LineupPosition>>(initialPositions);
   const [activeSwatch, setActiveSwatch] = useState<string | null>(null);
   const [paletteMatchMode, setPaletteMatchMode] = useState<"palette" | "family" | "other">("palette");
@@ -152,38 +193,6 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [suggestionMode, setSuggestionMode] = useState(false);
   const suggestionModeRef = useRef(false);
-  const [scaleMode, setScaleMode] = useState(false);
-  const scaleModeRef = useRef(false);
-
-  useEffect(() => {
-    scaleModeRef.current = scaleMode;
-  }, [scaleMode]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "s") return;
-
-      // Suggestions mode has priority; do not change canvas interaction while it is active.
-      if (suggestionModeRef.current) return;
-
-      // Never hijack typing in inputs, textareas, selects, or content-editable elements.
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.tagName === "SELECT" ||
-        target?.isContentEditable
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      setScaleMode((current) => !current);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   const confirmedParticipants = useMemo(
     () => participants.filter((p) => p.status === "confirmed" && p.cutout_url),
@@ -192,10 +201,30 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
 
   const palette = useMemo(() => event.color_palette ?? [], [event.color_palette]);
   const selectedParticipant = selectedId ? confirmedParticipants.find((p) => p.id === selectedId) ?? null : null;
-  const bride = confirmedParticipants.find((p) => p.role === "bride") ?? null;
+  // Suggestions belong to the bride even when her older participant row has no
+  // generated cutout and therefore is not rendered on the canvas.
+  const bride = participants.find((p) => p.role === "bride") ?? null;
+
+  const otherIds = useMemo(
+    () => new Set(
+      confirmedParticipants
+        .filter((participant) => participant.role === "bridesmaid")
+        .filter((participant) => classifyPaletteRelationship(
+          participant.confirmed_dress_color_name,
+          participant.confirmed_dress_primary_hex ?? null,
+          palette,
+        ) === "other")
+        .map((participant) => participant.id),
+    ),
+    [confirmedParticipants, palette],
+  );
 
 const filteredIds = useMemo(() => {
   if (!activeSwatch) return null;
+
+  if (paletteMatchMode === "other") {
+    return activeSwatch === OTHER_FILTER_ID ? otherIds : null;
+  }
 
   const swatch = palette.find((item) => item.id === activeSwatch);
   if (!swatch) return null;
@@ -220,6 +249,7 @@ const filteredIds = useMemo(() => {
   confirmedParticipants,
   palette,
   paletteMatchMode,
+  otherIds,
 ]);
 
   const refreshGeometry = () => setGeometryVersion((v) => v + 1);
@@ -240,33 +270,11 @@ const filteredIds = useMemo(() => {
     canvas.hoverCursor = nextEnabled ? "default" : "default";
     if (nextEnabled) {
       canvas.discardActiveObject?.();
-      syncSelectionPop(null);
+      selectedIdRef.current = null;
       setSelectedId(null);
     }
     canvas.requestRenderAll();
     refreshGeometry();
-  }
-
-  function syncSelectionPop(nextId: string | null) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const oldId = selectedIdRef.current;
-    const resetObject = oldId ? objectMapRef.current.get(oldId) : null;
-    if (resetObject) {
-      const base = (canvas.getHeight() * 0.82) / Math.max(1, resetObject.height);
-      const savedScale = positions[oldId!]?.scale ?? 1;
-      resetObject.set({ scaleX: base * savedScale, scaleY: base * savedScale });
-      resetObject.setCoords();
-    }
-    const nextObject = nextId ? objectMapRef.current.get(nextId) : null;
-    if (nextId && nextObject) {
-      const base = (canvas.getHeight() * 0.82) / Math.max(1, nextObject.height);
-      const savedScale = positions[nextId]?.scale ?? 1;
-      nextObject.set({ scaleX: base * savedScale * 1.02, scaleY: base * savedScale * 1.02 });
-      nextObject.setCoords();
-    }
-    selectedIdRef.current = nextId;
-    canvas.requestRenderAll();
   }
 
   useEffect(() => {
@@ -281,7 +289,7 @@ const filteredIds = useMemo(() => {
 
         const parent = canvasElementRef.current.parentElement;
         const width = parent?.clientWidth ?? 1100;
-        const height = Math.max(460, Math.round(width * 0.53));
+        const height = responsiveCanvasHeight(width, canvasElementRef.current);
         canvasElementRef.current.width = width;
         canvasElementRef.current.height = height;
 
@@ -289,6 +297,7 @@ const filteredIds = useMemo(() => {
           selection: false,
           preserveObjectStacking: true,
           enableRetinaScaling: true,
+          allowTouchScrolling: true,
           fireRightClick: false,
         });
         canvasRef.current = canvas;
@@ -305,16 +314,17 @@ const filteredIds = useMemo(() => {
             const image = await fabric.FabricImage.fromURL(participant.cutout_url, { crossOrigin: "anonymous" });
             if (cancelled) return;
             const position = fallbackPositions.get(participant.id)!;
-            const baseScale = (height * 0.82) / Math.max(1, image.height);
-            const scale = baseScale * clampScale(position.scale || 1);
+            const visibleBounds = visiblePersonBounds(image);
+            const baseScale = (height * 0.82) / visibleBounds.height;
+            const baselineOffset = visibleBounds.bottomPadding * baseScale;
             image.set({
               participantId: participant.id,
               originX: "center",
               originY: "bottom",
               left: width * position.x,
-              top: height * (1 - position.y),
-              scaleX: scale,
-              scaleY: scale,
+              top: height * (1 - position.y) + baselineOffset,
+              scaleX: baseScale,
+              scaleY: baseScale,
               selectable: !suggestionModeRef.current,
               evented: true,
               hasControls: false,
@@ -327,6 +337,7 @@ const filteredIds = useMemo(() => {
             });
             canvas.add(image);
             objectMapRef.current.set(participant.id, image);
+            baselineOffsetRef.current.set(participant.id, baselineOffset);
             geometryRef.current.set(participant.id, {
               x: image.left,
               y: image.top,
@@ -350,9 +361,8 @@ const filteredIds = useMemo(() => {
 
         const select = (object?: FabricImageLike) => {
           const id = object?.participantId ?? null;
-          syncSelectionPop(id);
+          selectedIdRef.current = id;
           setSelectedId(id);
-          setSelectedScale(id ? clampScale(positions[id]?.scale ?? 1) : 1);
           if (object) canvas.setActiveObject(object);
           refreshGeometry();
         };
@@ -365,32 +375,21 @@ const filteredIds = useMemo(() => {
           // Suggestions mode keeps its existing participant-targeting behavior.
           if (suggestionModeRef.current) {
             if (id === bride?.id) {
-              syncSelectionPop(null);
+              selectedIdRef.current = null;
               setSelectedId(null);
               refreshGeometry();
               return;
             }
-            syncSelectionPop(id);
             selectedIdRef.current = id;
             setSelectedId(id);
-            setSelectedScale(clampScale(positions[id]?.scale ?? 1));
             refreshGeometry();
             return;
-          }
-
-          // Scale mode only establishes the selected participant. Fabric continues to
-          // handle normal dragging and object selection as before.
-          if (scaleModeRef.current) {
-            selectedIdRef.current = id;
-            setSelectedId(id);
-            setSelectedScale(clampScale(positions[id]?.scale ?? 1));
-            refreshGeometry();
           }
         });
         canvas.on("selection:created", (e) => select(e.target));
         canvas.on("selection:updated", (e) => select(e.target));
         canvas.on("selection:cleared", () => {
-          syncSelectionPop(null);
+          selectedIdRef.current = null;
           setSelectedId(null);
           refreshGeometry();
         });
@@ -414,22 +413,35 @@ const filteredIds = useMemo(() => {
           });
           const next = { ...(positions[e.target.participantId] ?? { participant_id: e.target.participantId, x: 0.5, y: 0.07, scale: 1, z_index: 0, hidden: false }) };
           next.x = e.target.left / canvas.getWidth();
-          next.y = 1 - e.target.top / canvas.getHeight();
+          next.y = 1 - (e.target.top - (baselineOffsetRef.current.get(e.target.participantId) ?? 0)) / canvas.getHeight();
           setPositions((current) => ({ ...current, [e.target!.participantId!]: next }));
           refreshGeometry();
         });
 
         const resize = () => {
           const p = canvasElementRef.current?.parentElement;
-          if (!p) return;
+          const canvasElement = canvasElementRef.current;
+          if (!p || !canvasElement) return;
           const nextWidth = p.clientWidth;
-          const nextHeight = Math.max(460, Math.round(nextWidth * 0.53));
+          const nextHeight = responsiveCanvasHeight(nextWidth, canvasElement);
           const oldWidth = canvas.getWidth();
           const oldHeight = canvas.getHeight();
           if (!oldWidth || !oldHeight) return;
+          // Overlay changes (such as opening Suggestions) can notify the observer
+          // without changing the available canvas width. Do not recreate Fabric's
+          // backing store in that case; it causes a visible size jump on mobile.
+          if (Math.abs(nextWidth - oldWidth) < 1) return;
           canvas.setDimensions({ width: nextWidth, height: nextHeight });
           canvas.getObjects().forEach((object) => {
-            object.set({ left: (object.left / oldWidth) * nextWidth, top: (object.top / oldHeight) * nextHeight });
+            const heightRatio = nextHeight / oldHeight;
+            const id = object.participantId ?? "";
+            object.set({
+              left: (object.left / oldWidth) * nextWidth,
+              top: (object.top / oldHeight) * nextHeight,
+              scaleX: object.scaleX * heightRatio,
+              scaleY: object.scaleY * heightRatio,
+            });
+            baselineOffsetRef.current.set(id, (baselineOffsetRef.current.get(id) ?? 0) * heightRatio);
             object.setCoords();
           });
           canvas.requestRenderAll();
@@ -450,6 +462,7 @@ const filteredIds = useMemo(() => {
       canvasRef.current?.dispose();
       canvasRef.current = null;
       objectMap.clear();
+      baselineOffsetRef.current.clear();
       selectedIdRef.current = null;
     };
     // Initial positions and participants intentionally boot the canvas once.
@@ -493,31 +506,6 @@ const filteredIds = useMemo(() => {
     return () => cancelAnimationFrame(raf);
   }, [filteredIds, positions]);
 
-  function updateSelectedScale(raw: number) {
-    const id = selectedId;
-    const canvas = canvasRef.current;
-    if (!id || !canvas) return;
-    const object = objectMapRef.current.get(id);
-    if (!object) return;
-    const next = clampScale(raw);
-    const participant = confirmedParticipants.find((p) => p.id === id);
-    if (!participant) return;
-    const parentHeight = canvas.getHeight();
-    const baseScale = (parentHeight * 0.82) / Math.max(1, object.height);
-    object.set({ scaleX: baseScale * next * 1.02, scaleY: baseScale * next * 1.02 });
-    object.setCoords();
-    setSelectedScale(next);
-    setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), z_index: 0, hidden: false }), scale: next } }));
-    geometryRef.current.set(id, {
-      x: object.left,
-      y: object.top,
-      width: object.getScaledWidth(),
-      height: object.getScaledHeight(),
-    });
-    canvas.requestRenderAll();
-    refreshGeometry();
-  }
-
   function layer(delta: 1 | -1) {
     const canvas = canvasRef.current;
     const id = selectedId;
@@ -546,18 +534,16 @@ const filteredIds = useMemo(() => {
   }
 
 
-  function downloadCanvas() {
+  async function downloadCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     setError(null);
     try {
       const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = `${event.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "bridal-lineup"}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      await browserFileActions.saveDataUrl(
+        dataUrl,
+        `${event.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "bridal-lineup"}.png`,
+      );
     } catch (downloadError) {
       console.error(downloadError);
       setError("Could not download the lineup canvas. Please try again.");
@@ -577,8 +563,8 @@ const filteredIds = useMemo(() => {
         return {
           participant_id: participant.id,
           x: object ? object.left / canvas.getWidth() : current.x,
-          y: object ? 1 - object.top / canvas.getHeight() : current.y,
-          scale: clampScale(current.scale ?? 1),
+          y: object ? 1 - (object.top - (baselineOffsetRef.current.get(participant.id) ?? 0)) / canvas.getHeight() : current.y,
+          scale: 1,
           z_index: canvas.getObjects().findIndex((candidate) => candidate.participantId === participant.id),
           hidden: Boolean(current.hidden),
         };
@@ -620,40 +606,52 @@ const filteredIds = useMemo(() => {
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_30%,rgba(255,255,255,0.28),transparent_55%),linear-gradient(to_bottom,rgba(250,248,245,0.98),rgba(213,205,198,0.98))]" />
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_45%,transparent_48%,rgba(20,16,14,0.12)_100%)]" />
 
-      <div className="relative z-20 border-b border-white/50 bg-white/45 px-4 py-3 backdrop-blur-xl sm:px-6">
-        <div className="mb-2 flex items-center justify-between">
+      <div className="relative z-20 border-b border-white/50 bg-white/45 px-3 py-1.5 backdrop-blur-xl sm:px-5 sm:py-2">
+        <div className="mb-1 flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-rose-800">Color harmony</p>
-            <h2 className="font-serif text-lg text-stone-900">Your palette, in the room</h2>
+            <h2 className="font-serif text-base text-stone-900 sm:text-lg">Your palette, in the room</h2>
           </div>
         </div>
-        <div className="mb-3 flex justify-center">
-          <div className="inline-flex rounded-full border border-white/60 bg-white/50 p-1 shadow-sm backdrop-blur-md" role="group" aria-label="Palette matching mode">
+        <div className="flex min-w-0 items-center gap-2 pb-1">
+          <div className="inline-flex shrink-0 rounded-full border border-stone-200/80 bg-stone-100/75 p-1 shadow-inner backdrop-blur-md" role="group" aria-label="Palette matching mode">
             <button
               type="button"
-              onClick={() => { vibrate(); setPaletteMatchMode("palette"); }}
-              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "palette" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+              onClick={() => { vibrate(); setPaletteMatchMode("palette"); setActiveSwatch(null); }}
+                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "palette" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
             >
               Palette Match
             </button>
             <button
               type="button"
-              onClick={() => { vibrate(); setPaletteMatchMode("family"); }}
-              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "family" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+              onClick={() => { vibrate(); setPaletteMatchMode("family"); setActiveSwatch(null); }}
+                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "family" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
             >
               Family Match
             </button>
             <button
               type="button"
-              onClick={() => { vibrate(); setPaletteMatchMode("other"); }}
-              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "other" ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-white/80"}`}
+              onClick={() => { vibrate(); setPaletteMatchMode("other"); setActiveSwatch(null); }}
+                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "other" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
             >
               Other
             </button>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          {palette.map((swatch) => {
+          <span aria-hidden="true" className="h-6 w-px shrink-0 bg-stone-300/60" />
+          <div className="-ml-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 sm:gap-2">
+          {paletteMatchMode === "other" ? (
+            <button
+              type="button"
+              onClick={() => {
+                vibrate();
+                setActiveSwatch(activeSwatch === OTHER_FILTER_ID ? null : OTHER_FILTER_ID);
+              }}
+              className={`group inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ${activeSwatch === OTHER_FILTER_ID ? "border-rose-300 bg-rose-50/80 shadow-sm ring-1 ring-rose-100" : "border-stone-200/90 bg-white/75 shadow-[0_1px_2px_rgba(28,25,23,0.06)] active:border-stone-300 active:bg-white sm:hover:border-stone-300 sm:hover:bg-white"}`}
+            >
+              <span className="font-medium text-stone-800">All Other</span>
+              <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{otherIds.size}</span>
+            </button>
+          ) : palette.map((swatch) => {
             const count = confirmedParticipants
               .filter((p) => p.role === "bridesmaid")
               .filter((p) => matchesSwatch(p, swatch, palette, paletteMatchMode))
@@ -668,12 +666,12 @@ const filteredIds = useMemo(() => {
                 }}
                 type="button"
                 onClick={() => { vibrate(); setActiveSwatch(active ? null : swatch.id); }}
-                className={`group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ${active ? "border-stone-800 bg-white shadow-md" : "border-white/70 bg-white/50 hover:bg-white/80"}`}
+                className={`group inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ${active ? "border-rose-300 bg-rose-50/80 shadow-sm ring-1 ring-rose-100" : "border-stone-200/90 bg-white/75 shadow-[0_1px_2px_rgba(28,25,23,0.06)] active:border-stone-300 active:bg-white sm:hover:border-stone-300 sm:hover:bg-white"}`}
               >
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-10 rounded-full border border-black/10 shadow-inner" style={{ backgroundColor: swatch.hex }} />
                   <span className="font-medium text-stone-800">{swatch.name}</span>
-                  <span className="text-[10px] text-stone-400">{count}</span>
+                  <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{count}</span>
                 </span>
                 <span className="mt-1 flex min-h-3 items-center justify-center gap-1">
                   {confirmedParticipants
@@ -691,17 +689,12 @@ const filteredIds = useMemo(() => {
               </button>
             );
           })}
+          </div>
         </div>
       </div>
 
-      <div className="relative min-h-[460px] px-0 pb-24 pt-2 sm:min-h-[580px]">
-        <canvas ref={canvasElementRef} className="relative z-10 block h-full w-full" />
-
-        {scaleMode && !suggestionMode && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-white/60 bg-white/70 px-3 py-1.5 text-[10px] font-medium text-stone-600 shadow-sm backdrop-blur-md">
-            Scale mode · Press S to exit
-          </div>
-        )}
+      <div className="relative min-h-[280px] px-0 pb-20 pt-2">
+        <canvas ref={canvasElementRef} className="lineup-drag-surface relative z-10 block h-full w-full" />
 
         {!suggestionMode && selectedParticipant && selectedId && (
           <div
@@ -711,12 +704,9 @@ const filteredIds = useMemo(() => {
               top: `${Math.max(68, canvasPoint(geometryRef.current.get(selectedId)?.x ?? 0, (geometryRef.current.get(selectedId)?.y ?? 80) - (geometryRef.current.get(selectedId)?.height ?? 160) * 0.55).y)}px`,
             }}
           >
-            <button className="grid h-7 w-7 place-items-center rounded-full hover:bg-white" title="Scale down" onClick={() => { vibrate(); updateSelectedScale(selectedScale - SCALE_STEP); }}><Minus size={13} /></button>
-            <button className="grid h-7 w-7 place-items-center rounded-full hover:bg-white" title="Scale up" onClick={() => { vibrate(); updateSelectedScale(selectedScale + SCALE_STEP); }}><Plus size={13} /></button>
-            <span className="px-1 text-[10px] tabular-nums text-stone-500">{selectedScale.toFixed(1)}×</span>
-            <button className="grid h-7 w-7 place-items-center rounded-full hover:bg-white" title="Bring forward" onClick={() => { vibrate(); layer(1); }}><ArrowUp size={13} /></button>
-            <button className="grid h-7 w-7 place-items-center rounded-full hover:bg-white" title="Send back" onClick={() => { vibrate(); layer(-1); }}><ArrowDown size={13} /></button>
-            <button className="grid h-7 w-7 place-items-center rounded-full text-rose-600 hover:bg-rose-50" title="Remove from lineup" onClick={() => { vibrate(); removeSelected(); }}><Trash2 size={13} /></button>
+            <button className="grid h-11 w-11 touch-manipulation place-items-center rounded-full active:bg-white sm:hover:bg-white" title="Bring forward" onClick={() => { vibrate(); layer(1); }}><ArrowUp size={15} /></button>
+            <button className="grid h-11 w-11 touch-manipulation place-items-center rounded-full active:bg-white sm:hover:bg-white" title="Send back" onClick={() => { vibrate(); layer(-1); }}><ArrowDown size={15} /></button>
+            <button className="grid h-11 w-11 touch-manipulation place-items-center rounded-full text-rose-600 active:bg-rose-50 sm:hover:bg-rose-50" title="Remove from lineup" onClick={() => { vibrate(); removeSelected(); }}><Trash2 size={15} /></button>
           </div>
         )}
 
@@ -725,48 +715,22 @@ const filteredIds = useMemo(() => {
         </div>
       </div>
 
-      {!suggestionMode && selectedId && (
-        <div className="absolute bottom-20 left-1/2 z-30 w-[min(420px,90%)] -translate-x-1/2 rounded-2xl border border-white/65 bg-white/65 px-4 py-3 shadow-xl backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-stone-500">
-                <span>Scale</span><span>{selectedScale.toFixed(1)}×</span>
-              </div>
-              <input
-                className="mt-2 w-full accent-rose-700"
-                type="range"
-                min={MIN_SCALE}
-                max={MAX_SCALE}
-                step={SCALE_STEP}
-                value={selectedScale}
-                onChange={(e) => updateSelectedScale(Number(e.target.value))}
-                aria-label={`Scale ${selectedParticipant?.name ?? "selected person"}`}
-              />
-            </div>
-            <div className="flex items-center gap-1.5 text-stone-500">
-              <button className="rounded-full p-2 hover:bg-white" title="Send backward one layer" onClick={() => { vibrate(); layer(-1); }}><ChevronDown size={15} /></button>
-              <button className="rounded-full p-2 hover:bg-white" title="Bring forward one layer" onClick={() => { vibrate(); layer(1); }}><ChevronUp size={15} /></button>
-            </div>
-          </div>
-        </div>
-      )}
-
-<div className="absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-3 border-t border-white/60 bg-white/55 px-4 py-3 backdrop-blur-xl sm:px-6">
-  <SuggestionTools
-    eventId={event.id}
-    currentParticipantId={bride?.id ?? null}
-    target={selectedParticipant && selectedParticipant.id !== bride?.id ? selectedParticipant : null}
-    onEnabledChange={syncSuggestionMode}
-    className="w-full max-w-sm"
-  />
+<SuggestionTools
+  eventId={event.id}
+  currentParticipantId={bride?.id ?? null}
+  target={selectedParticipant && selectedParticipant.id !== bride?.id ? selectedParticipant : null}
+  onEnabledChange={syncSuggestionMode}
+  className="lineup-chat-controls lineup-chat-controls--above-actions absolute z-50"
+/>
+<div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/60 bg-white/55 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
     <button
       type="button"
       onClick={() => {
         vibrate();
-        downloadCanvas();
+        void downloadCanvas();
       }}
-      className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition hover:bg-white"
+      className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"
     >
       <Download size={15} /> Download
     </button>
@@ -777,7 +741,7 @@ const filteredIds = useMemo(() => {
         void saveLineup();
       }}
       disabled={saving}
-      className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-rose-950 disabled:cursor-wait disabled:opacity-60"
+      className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition active:bg-rose-950 disabled:cursor-wait disabled:opacity-60 sm:hover:bg-rose-950"
     >
       <Save size={15} /> {saving ? "Saving…" : saved ? "Saved" : "Save Lineup"}
     </button>

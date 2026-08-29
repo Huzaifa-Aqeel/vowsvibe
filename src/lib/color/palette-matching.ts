@@ -1,7 +1,9 @@
 import { hexToLab } from "@/lib/color/undertone";
+import { deltaE2000 } from "@/lib/color/delta-e";
 import type { SwatchColor } from "@/lib/types";
 
 export type PaletteRelationship = "palette" | "family" | "other";
+export type BridalPaletteBadge = "palette" | "family" | "same-family" | "custom";
 export type ColorFamily = "red" | "pink" | "purple" | "blue" | "green" | "neutral" | "dark";
 
 function normalizePaletteName(value: string | null | undefined) {
@@ -55,63 +57,38 @@ export function exactPaletteMatch(
   return palette.find((swatch) => normalizePaletteName(swatch.name) === normalized) ?? null;
 }
 
-function hueFromHex(hex: string | null | undefined): number | null {
-  const normalized = normalizeColorHex(hex);
-  if (!normalized) return null;
-
-  try {
-    const { a, b } = hexToLab(normalized);
-    const chroma = Math.hypot(a, b);
-    if (chroma < 1e-6) return null;
-    return ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
-  } catch {
-    return null;
-  }
-}
-
-function hueDistance(first: number, second: number): number {
-  const raw = Math.abs(first - second);
-  return Math.min(raw, 360 - raw);
-}
-
 type RankedFamilyCandidate = {
   swatch: SwatchColor;
-  hueDistance: number;
-  lightnessDistance: number;
-  chromaDistance: number;
+  deltaE: number;
   paletteIndex: number;
 };
 
-function labMetrics(hex: string | null | undefined) {
+function labFromHex(hex: string | null | undefined) {
   const normalized = normalizeColorHex(hex);
   if (!normalized) return null;
 
   try {
-    const lab = hexToLab(normalized);
-    return {
-      hue: hueFromHex(normalized),
-      lightness: lab.l,
-      chroma: Math.hypot(lab.a, lab.b),
-    };
+    return hexToLab(normalized);
   } catch {
     return null;
   }
 }
 
+// Product threshold for visually useful bridal coordination. Calibrate it with
+// real bridal-color examples and user feedback rather than treating it as final.
+export const FAMILY_MATCH_MAX_DELTA_E = 12;
+
 /**
  * Finds the single best palette swatch for a dress when both are in the same
- * coarse family. No CIEDE2000 is used here. We rank deterministically by:
- *   1. circular hue distance
- *   2. lightness distance
- *   3. chroma distance
- *   4. original palette order
+ * coarse family. Candidates are ranked by CIEDE2000, with original palette
+ * order as the deterministic tie-breaker.
  */
 export function closestSameFamilySwatch(
   hex: string | null | undefined,
   palette: SwatchColor[],
   family: ColorFamily,
 ): SwatchColor | null {
-  const dress = labMetrics(hex);
+  const dress = labFromHex(hex);
   if (!dress) return null;
 
   const candidates: RankedFamilyCandidate[] = [];
@@ -119,26 +96,23 @@ export function closestSameFamilySwatch(
   palette.forEach((swatch, paletteIndex) => {
     if (familyForSwatch(swatch) !== family) return;
 
-    const swatchMetrics = labMetrics(swatch.hex);
-    if (!swatchMetrics || dress.hue == null || swatchMetrics.hue == null) return;
+    const swatchLab = labFromHex(swatch.hex);
+    if (!swatchLab) return;
 
     candidates.push({
       swatch,
-      hueDistance: hueDistance(dress.hue, swatchMetrics.hue),
-      lightnessDistance: Math.abs(dress.lightness - swatchMetrics.lightness),
-      chromaDistance: Math.abs(dress.chroma - swatchMetrics.chroma),
+      deltaE: deltaE2000(dress, swatchLab),
       paletteIndex,
     });
   });
 
   candidates.sort((left, right) =>
-    left.hueDistance - right.hueDistance ||
-    left.lightnessDistance - right.lightnessDistance ||
-    left.chromaDistance - right.chromaDistance ||
+    left.deltaE - right.deltaE ||
     left.paletteIndex - right.paletteIndex,
   );
 
-  return candidates[0]?.swatch ?? null;
+  const best = candidates[0];
+  return best && best.deltaE <= FAMILY_MATCH_MAX_DELTA_E ? best.swatch : null;
 }
 
 export function paletteRelationship(
@@ -184,6 +158,29 @@ export function classifyPaletteRelationship(
     return "family";
   }
   return "other";
+}
+
+/**
+ * UI-facing palette status. Unlike PaletteRelationship, this distinguishes a
+ * valid same-family shade outside the close-match threshold from a color in a
+ * completely different family. Invalid or incomplete color data returns null.
+ */
+export function classifyBridalPaletteBadge(
+  colorName: string | null | undefined,
+  hex: string | null | undefined,
+  palette: SwatchColor[],
+): BridalPaletteBadge | null {
+  if (!palette.length) return null;
+
+  const relationship = classifyPaletteRelationship(colorName, hex, palette);
+  if (relationship === "palette" || relationship === "family") return relationship;
+
+  const dressFamily = colorFamilyFromHex(hex);
+  if (!dressFamily) return null;
+
+  return palette.some((swatch) => familyForSwatch(swatch) === dressFamily)
+    ? "same-family"
+    : "custom";
 }
 
 export function matchesPaletteMode(

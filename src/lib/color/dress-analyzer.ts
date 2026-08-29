@@ -1,5 +1,9 @@
 import { hexToLab, type Lab, type Undertone } from "@/lib/color/undertone";
+import { deltaE2000 } from "@/lib/color/delta-e";
 import type { SwatchColor } from "@/lib/types";
+
+// Preserve the existing public API while sharing the project-wide implementation.
+export const ciede2000 = deltaE2000;
 
 export interface YouCamProfile {
   skinHex: string;
@@ -35,17 +39,31 @@ interface Lch {
  *  1. Hue-family harmony with the detected undertone.
  *  2. Perceptual lightness separation from skin, with a guarded washout rule.
  *  3. Dress chroma relative to the person's skin/hair contrast.
- *  4. CIEDE2000 perceptual separation from skin, used only as a supporting signal.
  *
- * CIEDE2000 is standardized by CIE/ISO for perceptual color difference. It is used here
- * as a color-difference measurement, not as a claim that a dress is "X% likely" to suit
- * someone. The final number should be read as a compatibility score, not a probability.
+ * The final number is a deterministic product heuristic, not a probability or a
+ * clinically/artistically validated personal-color result.
  */
 export interface DressAnalysisContext {
   dressColorName?: string | null;
   bridePalette?: SwatchColor[];
   confirmedBridesmaids?: Array<{ name: string; hex: string }>;
 }
+
+// Product heuristics, not color-science standards. These weights should be
+// calibrated against real styling examples and user feedback over time.
+const SCORE_WEIGHTS_WITH_HAIR = {
+  undertone: 0.44,
+  lightness: 0.33,
+  chroma: 0.23,
+} as const;
+
+// Without hair data, feature contrast is unknown. Chroma remains a smaller,
+// skin/dress-only signal while undertone and lightness carry more of the score.
+const SCORE_WEIGHTS_WITHOUT_HAIR = {
+  undertone: 0.48,
+  lightness: 0.38,
+  chroma: 0.14,
+} as const;
 
 export function analyzeDressWithSkinAndHair(
   dressHex: string,
@@ -59,21 +77,17 @@ export function analyzeDressWithSkinAndHair(
   const skin = toLch(skinLab);
   const dress = toLch(dressLab);
 
-  const personalContrast = hairLab
-    ? Math.abs(skinLab.l - hairLab.l)
-    : estimateFeatureContrast(skinLab.l);
+  const personalContrast = hairLab ? Math.abs(skinLab.l - hairLab.l) : null;
 
   const hueScore = scoreUndertoneHueCompatibility(dress, profile.undertone);
   const lightnessScore = scoreLightnessCompatibility(skin, dress);
   const chromaScore = scoreChromaCompatibility(skin, dress, personalContrast);
-  const deltaE = ciede2000(skinLab, dressLab);
-  const separationScore = scorePerceptualSeparation(deltaE, dress.c);
+  const weights = hairLab ? SCORE_WEIGHTS_WITH_HAIR : SCORE_WEIGHTS_WITHOUT_HAIR;
 
   const rawScore =
-    hueScore * 0.38 +
-    lightnessScore * 0.28 +
-    chromaScore * 0.20 +
-    separationScore * 0.14;
+    hueScore * weights.undertone +
+    lightnessScore * weights.lightness +
+    chromaScore * weights.chroma;
 
   const washout = isWashoutRisk(skin, dress);
   let finalScore = Math.round(clamp(rawScore, 0, 100));
@@ -85,24 +99,24 @@ export function analyzeDressWithSkinAndHair(
 
   if (washout) {
     matchTier = "washout-risk";
-    badgeLabel = "⚠️ Low Contrast";
+    badgeLabel = "Less Recommended";
   } else if (finalScore >= 88) {
     matchTier = "perfect";
-    badgeLabel = "⭐ Ideal Tone Match";
+    badgeLabel = "Excellent Match";
   } else if (finalScore >= 74) {
     matchTier = "great";
-    badgeLabel = "✨ Flattering Shade";
+    badgeLabel = "Strong Match";
   } else if (finalScore < 60) {
     matchTier = "low-match";
-    badgeLabel = "Low Match";
+    badgeLabel = "Less Recommended";
   }
 
   const isPositive =
     matchTier === "perfect" ||
     matchTier === "great";
   const reasons = isPositive
-    ? buildPositiveReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore, deltaE })
-    : buildConsiderationReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore, deltaE, washout });
+    ? buildPositiveReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore })
+    : buildConsiderationReasons({ skin, dress, profile, personalContrast, hueScore, lightnessScore, chromaScore, washout });
 
   const contextSuggestions = buildContextSuggestions(dressHex, context);
 
@@ -120,11 +134,10 @@ type AnalysisSignals = {
   skin: Lch;
   dress: Lch;
   profile: YouCamProfile;
-  personalContrast: number;
+  personalContrast: number | null;
   hueScore: number;
   lightnessScore: number;
   chromaScore: number;
-  deltaE: number;
 };
 
 type RankedReason = {
@@ -147,7 +160,6 @@ function buildPositiveReasons(signals: AnalysisSignals): string[] {
     hueScore,
     lightnessScore,
     chromaScore,
-    deltaE,
   } = signals;
 
   const reasons: RankedReason[] = [];
@@ -177,13 +189,6 @@ function buildPositiveReasons(signals: AnalysisSignals): string[] {
     });
   }
 
-  if (deltaE >= 18 && deltaE < 45) {
-    reasons.push({
-      text: "The shade creates useful visual separation from your complexion.",
-      strength: 86 - Math.abs(30 - deltaE),
-    });
-  }
-
   if (dress.c < 15 && lightnessScore >= 78) {
     reasons.push({
       text: "Its softer color intensity keeps the overall look balanced.",
@@ -191,7 +196,7 @@ function buildPositiveReasons(signals: AnalysisSignals): string[] {
     });
   }
 
-  if (personalContrast > 38 && chromaScore >= 78) {
+  if (personalContrast != null && personalContrast > 38 && chromaScore >= 78) {
     reasons.push({
       text: "Its color intensity has enough presence to work with your feature contrast.",
       strength: Math.min(92, chromaScore + 4),
@@ -219,7 +224,6 @@ function buildConsiderationReasons(
     hueScore,
     lightnessScore,
     chromaScore,
-    deltaE,
     washout,
   } = signals;
 
@@ -247,7 +251,12 @@ function buildConsiderationReasons(
     });
   }
 
-  if (chromaScore < 65 && personalContrast < 38) {
+  if (chromaScore < 65 && personalContrast == null) {
+    reasons.push({
+      text: "The dress and complexion have a less balanced color-intensity relationship.",
+      strength: 100 - chromaScore,
+    });
+  } else if (chromaScore < 65 && personalContrast != null && personalContrast < 38) {
     reasons.push({
       text: "The color intensity may feel stronger than your natural feature contrast.",
       strength: 100 - chromaScore,
@@ -258,13 +267,6 @@ function buildConsiderationReasons(
     reasons.push({
       text: "The lightness relationship with your complexion is less distinct.",
       strength: 100 - lightnessScore,
-    });
-  }
-
-  if (deltaE < 10 && dress.c < 22) {
-    reasons.push({
-      text: "The shade is close to your complexion overall, so the effect may read very soft.",
-      strength: 94 - deltaE,
     });
   }
 
@@ -332,6 +334,8 @@ function normalizeHue(h: number): number {
  * unstable/perceptually weak near neutral.
  */
 function scoreUndertoneHueCompatibility(dress: Lch, undertone: Undertone): number {
+  // This mapping is a styling-product heuristic; unlike CIEDE2000, it is not a
+  // CIE/ISO color-science standard.
   // Prefer a smooth Lab a/b warmth signal over hardcoded hue anchors. The sign
   // captures warm-vs-cool direction while the magnitude controls how strongly
   // the color leans that way. This avoids penalizing nearby hues just because
@@ -370,41 +374,23 @@ function scoreLightnessCompatibility(skin: Lch, dress: Lch): number {
   return 88;
 }
 
-function scoreChromaCompatibility(skin: Lch, dress: Lch, personalContrast: number): number {
-  const dressC = dress.c;
+function scoreChromaCompatibility(skin: Lch, dress: Lch, personalContrast: number | null): number {
+  // Anchor the desired dress intensity to actual skin chroma. Hair/skin L*
+  // contrast only adjusts that target when hair data genuinely exists.
+  const contrastAdjustment = personalContrast == null
+    ? 12
+    : personalContrast < 18
+      ? 8
+      : personalContrast > 38
+        ? 30
+        : 19;
+  const targetDressChroma = skin.c + contrastAdjustment;
+  const distanceFromTarget = Math.abs(dress.c - targetDressChroma);
 
-  // Neutral/quiet dresses are not automatically better; vivid colors need enough
-  // feature contrast to avoid visually overpowering a low-contrast face.
-  if (personalContrast < 18) {
-    if (dressC <= 20) return 92;
-    if (dressC <= 35) return 82;
-    if (dressC <= 55) return 68;
-    return 52;
-  }
-
-  if (personalContrast > 38) {
-    if (dressC < 10) return 70;
-    if (dressC <= 25) return 82;
-    if (dressC <= 55) return 94;
-    return 88;
-  }
-
-  if (dressC <= 12) return 82;
-  if (dressC <= 35) return 92;
-  if (dressC <= 58) return 88;
-  return 74;
-}
-
-function scorePerceptualSeparation(deltaE: number, dressChroma: number): number {
-  // CIEDE2000 is perceptual color difference, not a suitability score. We use a
-  // broad preference curve: some separation is useful, but extreme separation isn't
-  // automatically better.
-  if (deltaE < 5) return dressChroma < 12 ? 50 : 62;
-  if (deltaE < 10) return 72;
-  if (deltaE < 18) return 88;
-  if (deltaE < 30) return 94;
-  if (deltaE < 45) return 88;
-  return 78;
+  // The no-hair path is deliberately broad: it can compare skin and dress
+  // intensity, but it must not imply knowledge of the person's feature contrast.
+  const penaltyRate = personalContrast == null ? 0.55 : 0.8;
+  return clamp(94 - distanceFromTarget * penaltyRate, 52, 94);
 }
 
 function isWashoutRisk(skin: Lch, dress: Lch): boolean {
@@ -417,85 +403,10 @@ function isWashoutRisk(skin: Lch, dress: Lch): boolean {
   return deltaL < 8 && lowDressChroma && chromaDifference < 18;
 }
 
-function estimateFeatureContrast(skinL: number): number {
-  // Without hair, do not invent a high-precision contrast value. A middle estimate
-  // prevents the hair-dependent signal from dominating the score.
-  return skinL < 35 || skinL > 75 ? 30 : 24;
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
 function dedupeReasons(reasons: string[]): string[] {
   return [...new Set(reasons)];
-}
-
-/** CIEDE2000, using the CIE/ISO definition with kL = kC = kH = 1. */
-export function ciede2000(lab1: Lab, lab2: Lab): number {
-  const kL = 1;
-  const kC = 1;
-  const kH = 1;
-
-  const C1 = Math.hypot(lab1.a, lab1.b);
-  const C2 = Math.hypot(lab2.a, lab2.b);
-  const CBar = (C1 + C2) / 2;
-  const CBar7 = CBar ** 7;
-  const G = 0.5 * (1 - Math.sqrt(CBar7 / (CBar7 + 25 ** 7)));
-
-  const a1p = (1 + G) * lab1.a;
-  const a2p = (1 + G) * lab2.a;
-  const C1p = Math.hypot(a1p, lab1.b);
-  const C2p = Math.hypot(a2p, lab2.b);
-
-  const h1p = hueAngle(a1p, lab1.b, C1p);
-  const h2p = hueAngle(a2p, lab2.b, C2p);
-
-  const dLp = lab2.l - lab1.l;
-  const dCp = C2p - C1p;
-  const dhp = hueDifference(h1p, h2p, C1p, C2p);
-  const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin((dhp * Math.PI) / 360);
-
-  const LBar = (lab1.l + lab2.l) / 2;
-  const CpBar = (C1p + C2p) / 2;
-  const hBar = meanHue(h1p, h2p, C1p, C2p);
-
-  const T =
-    1 -
-    0.17 * Math.cos(((hBar - 30) * Math.PI) / 180) +
-    0.24 * Math.cos(((2 * hBar) * Math.PI) / 180) +
-    0.32 * Math.cos(((3 * hBar + 6) * Math.PI) / 180) -
-    0.20 * Math.cos(((4 * hBar - 63) * Math.PI) / 180);
-
-  const dTheta = 30 * Math.exp(-(((hBar - 275) / 25) ** 2));
-  const RC = 2 * Math.sqrt(CpBar ** 7 / (CpBar ** 7 + 25 ** 7));
-  const SL = 1 + (0.015 * (LBar - 50) ** 2) / Math.sqrt(20 + (LBar - 50) ** 2);
-  const SC = 1 + 0.045 * CpBar;
-  const SH = 1 + 0.015 * CpBar * T;
-  const RT = -Math.sin((2 * dTheta * Math.PI) / 180) * RC;
-
-  const dL = dLp / (kL * SL);
-  const dC = dCp / (kC * SC);
-  const dH = dHp / (kH * SH);
-
-  return Math.sqrt(dL ** 2 + dC ** 2 + dH ** 2 + RT * dC * dH);
-}
-
-function hueAngle(a: number, b: number, c: number): number {
-  if (c < 1e-12) return 0;
-  return normalizeHue((Math.atan2(b, a) * 180) / Math.PI);
-}
-
-function hueDifference(h1: number, h2: number, c1: number, c2: number): number {
-  if (c1 < 1e-12 || c2 < 1e-12) return 0;
-  const diff = h2 - h1;
-  if (Math.abs(diff) <= 180) return diff;
-  return diff > 0 ? diff - 360 : diff + 360;
-}
-
-function meanHue(h1: number, h2: number, c1: number, c2: number): number {
-  if (c1 < 1e-12 || c2 < 1e-12) return normalizeHue(h1 + h2);
-  const diff = Math.abs(h1 - h2);
-  if (diff <= 180) return normalizeHue((h1 + h2) / 2);
-  return normalizeHue((h1 + h2 + 360) / 2);
 }

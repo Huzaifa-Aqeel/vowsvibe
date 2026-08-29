@@ -11,6 +11,161 @@ body {
   @apply bg-blush-50 text-ink-900 antialiased;
 }
 
+/* Shared lineup viewport primitives. These keep the web implementation usable in
+   browser chrome today and give a future Capacitor shell one place to adapt insets. */
+.lineup-expanded-scene {
+  height: calc(100vh - 22rem - env(safe-area-inset-bottom, 0px));
+  min-height: 18rem;
+  max-height: 48rem;
+}
+
+.lineup-confirmed-viewport {
+  height: calc(100vh - 3.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+.lineup-confirmed-viewport .lineup-expanded-scene {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 0%;
+}
+
+@supports (height: 100dvh) {
+  .lineup-confirmed-viewport {
+    height: calc(100dvh - 3.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.lineup-full-bleed {
+  width: calc(100vw - 2rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  margin-left: calc((100% - 100vw + 2rem + env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)) / 2);
+}
+
+.lineup-bride-full-width {
+  width: calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  margin-left: calc((100% - 100vw + 1rem + env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)) / 2);
+}
+
+.lineup-page-safe-invite {
+  padding-top: calc(1.75rem + env(safe-area-inset-top, 0px));
+  padding-right: calc(1.25rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(1.75rem + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(1.25rem + env(safe-area-inset-left, 0px));
+}
+
+.lineup-page-safe-studio {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+}
+
+/* Keep the public scene stable when browser chrome or the software keyboard changes. */
+@supports (height: 100svh) {
+  .lineup-expanded-scene {
+    height: calc(100svh - 22rem - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.lineup-pan-surface {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+.lineup-drag-surface {
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+}
+
+.lineup-chat-controls {
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  right: calc(1rem + env(safe-area-inset-right, 0px));
+}
+
+.lineup-chat-controls--above-actions {
+  bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+
+.lineup-sticky-actions {
+  padding-right: calc(1rem + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
+}
+
+.suggestion-sheet {
+  position: fixed;
+  z-index: 300;
+  right: env(safe-area-inset-right, 0px);
+  bottom: 0;
+  left: env(safe-area-inset-left, 0px);
+  width: auto;
+  max-height: min(72vh, 34rem);
+  max-height: min(72dvh, 34rem);
+  overflow-y: auto;
+  border-radius: 1.5rem 1.5rem 0 0;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 640px) {
+  .lineup-confirmed-viewport {
+    height: calc(100vh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+
+  @supports (height: 100dvh) {
+    .lineup-confirmed-viewport {
+      height: calc(100dvh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    }
+  }
+
+  .lineup-full-bleed {
+    width: calc(100vw - 4rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+    margin-left: calc((100% - 100vw + 4rem + env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px)) / 2);
+  }
+
+  .lineup-page-safe-invite {
+    padding-top: calc(2.5rem + env(safe-area-inset-top, 0px));
+    padding-right: calc(2rem + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(2rem + env(safe-area-inset-left, 0px));
+  }
+
+  .lineup-page-safe-studio {
+    padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+    padding-right: calc(2rem + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(2rem + env(safe-area-inset-left, 0px));
+  }
+
+  .lineup-chat-controls {
+    right: calc(1.5rem + env(safe-area-inset-right, 0px));
+  }
+
+  .suggestion-sheet {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: min(22rem, calc(100vw - 2rem));
+    max-height: min(70dvh, 34rem);
+    border-radius: 1.5rem;
+    padding-bottom: 1rem;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .lineup-expanded-scene {
+    min-height: 16rem;
+  }
+
+  .suggestion-sheet {
+    max-height: calc(100dvh - 1rem);
+  }
+}
+
 ::selection {
   @apply bg-blush-200;
 }

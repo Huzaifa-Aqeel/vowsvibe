@@ -28,7 +28,7 @@ export function PublicLineupBoard({ eventId, eventTitle, currentParticipantId, c
   }, [eventId]);
 
   if (participants === null) {
-    return <div className="aspect-[16/9] w-full animate-pulse rounded-2xl bg-stone-100 sm:aspect-[21/9]" />;
+    return <div className="lineup-expanded-scene w-full animate-pulse rounded-2xl bg-stone-100" />;
   }
 
   return (
@@ -38,6 +38,7 @@ export function PublicLineupBoard({ eventId, eventTitle, currentParticipantId, c
       title={`${eventTitle}'s bridal party`}
       currentParticipantId={currentParticipantId}
       currentParticipantToken={currentParticipantToken}
+      expanded
     />
   );
 }

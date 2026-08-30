@@ -19,6 +19,18 @@ const nextConfig = {
   // them with plain Node `require` at runtime, same as any other native addon (sharp,
   // sqlite3, etc. — see Next's own docs, which list onnxruntime-node as a known example).
   serverExternalPackages: ["onnxruntime-node", "@imgly/background-removal-node"],
+
+  // IMG.LY resolves its model manifest and hashed model files dynamically at runtime,
+  // so Next's static tracer cannot discover them from the package entry point. Keep
+  // these assets alongside only the two functions that perform cutout extraction.
+  outputFileTracingIncludes: {
+    "/api/bridal-look/[lookId]/confirm": [
+      "./node_modules/@imgly/background-removal-node/dist/**/*",
+    ],
+    "/api/participants/[participantId]": [
+      "./node_modules/@imgly/background-removal-node/dist/**/*",
+    ],
+  },
 };
 
 export default nextConfig;

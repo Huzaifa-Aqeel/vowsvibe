@@ -35,7 +35,7 @@ export function DressAnalysisCard({
     <div className="relative w-full pt-5">
       <div className="absolute left-0 top-0 text-[10px] font-semibold tracking-wide text-stone-500">{analysis.score}% match</div>
       <div
-      className={`dress-analysis-card group relative aspect-[3/4] w-full select-none outline-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+      className={`dress-analysis-card group relative w-full select-none outline-none ${analysisOpen ? "min-h-[30rem] sm:aspect-[3/4] sm:min-h-0" : "aspect-[3/4]"} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       tabIndex={disabled ? -1 : 0}
       aria-label={`${alt}. ${analysis.badgeLabel}. ${analysisOpen ? "Analysis open" : "View analysis"}`}
       onKeyDown={(event) => {

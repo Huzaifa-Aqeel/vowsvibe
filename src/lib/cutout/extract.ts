@@ -10,8 +10,9 @@ export async function extractCutout(renderPath: string, attemptId: string, role:
   const renderUrl = publicStorageUrl(renderPath);
   if (!renderUrl) throw new Error("Confirmed render is missing — cannot extract a cutout");
 
-  // The quantized model materially reduces cold-start asset and compute cost on Vercel.
-  const cutoutBlob = await removeBackground(renderUrl, { model: "small" });
+  // Keep the higher-quality default model for fine dress, hair, and veil edges.
+  // The smaller model noticeably degrades cutout detail even though it starts faster.
+  const cutoutBlob = await removeBackground(renderUrl, { model: "medium" });
   const buffer = Buffer.from(await cutoutBlob.arrayBuffer());
 
   const folder = role === "bride" ? "vto-cutouts/bride" : "vto-cutouts/bridesmaid";

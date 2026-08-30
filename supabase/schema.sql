@@ -52,7 +52,6 @@ create table if not exists participants (
   name varchar(255) not null,
   session_token text not null default encode(gen_random_bytes(16), 'hex'),
   role participant_role not null default 'bridesmaid',
-  suggestions_enabled boolean not null default false,
   original_photo_path text,
   confirmed_look_id uuid,
   -- Public participant lifecycle: only pending or confirmed. VTO attempt progress lives on vto_attempts.\n  status participant_status not null default 'pending',
@@ -78,8 +77,6 @@ create table if not exists participants (
 );
 
 -- Additive columns for databases created before skin-tone analysis existed.
-
-alter table participants add column if not exists suggestions_enabled boolean not null default false;
 
 create index if not exists participants_event_id_idx on participants(event_id);
 create unique index if not exists participants_session_token_idx on participants(session_token);
@@ -230,13 +227,12 @@ declare
   sender_event uuid;
   sender_status participant_status;
   sender_look uuid;
-  sender_enabled boolean;
   target_event uuid;
   target_status participant_status;
   target_look uuid;
 begin
-  select event_id, status, confirmed_look_id, suggestions_enabled
-    into sender_event, sender_status, sender_look, sender_enabled
+  select event_id, status, confirmed_look_id
+    into sender_event, sender_status, sender_look
     from participants where id = new.from_participant_id;
   select event_id, status, confirmed_look_id
     into target_event, target_status, target_look
@@ -247,9 +243,6 @@ begin
   end if;
   if sender_status <> 'confirmed' or target_status <> 'confirmed' then
     raise exception 'Only confirmed participants can exchange suggestions';
-  end if;
-  if not coalesce(sender_enabled, false) then
-    raise exception 'Suggestions are disabled for this sender';
   end if;
   if target_look is null or new.target_look_id <> target_look then
     raise exception 'Suggestion must target the participant's current confirmed look';

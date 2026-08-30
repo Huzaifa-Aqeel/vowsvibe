@@ -101,7 +101,7 @@ export function LineupRow({
   const prevRects = useRef(new Map<string, DOMRect>());
   const seenIds = useRef(new Set<string>(initialParticipants.filter((p) => p.status === "confirmed" && p.cutout_url).map((p) => p.id)));
   const [suggestionTargetId, setSuggestionTargetId] = useState<string | null>(null);
-  const [suggestionsEnabled, setSuggestionsEnabled] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
   // No polling: the database emits a safe lineup_updates row only when a participant
   // actually becomes confirmed. We then make one public lineup read to get the complete,
@@ -213,8 +213,8 @@ const heightPct = baseHeightPct;
                   if (el) figureRefs.current.set(p.id, el);
                   else figureRefs.current.delete(p.id);
                 }}
-                className={`absolute flex -translate-x-1/2 touch-manipulation flex-col items-center ${currentParticipantId && suggestionsEnabled ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
-                onClick={() => currentParticipantId && suggestionsEnabled && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
+                className={`absolute flex -translate-x-1/2 touch-manipulation flex-col items-center ${currentParticipantId && suggestionsOpen ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
+                onClick={() => currentParticipantId && suggestionsOpen && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
                 style={{
                   left: positions[p.id] ? `${positions[p.id].x * 100}%` : `${left}%`,
                   bottom: positions[p.id] ? `${positions[p.id].y * 100}%` : isBack ? "6%" : "4%",
@@ -247,9 +247,9 @@ const heightPct = baseHeightPct;
               currentParticipantId={currentParticipantId}
               currentParticipantToken={currentParticipantToken}
               target={suggestionTarget}
-              onEnabledChange={(enabled) => {
-                setSuggestionsEnabled(enabled);
-                if (!enabled) setSuggestionTargetId(null);
+              onOpenChange={(open) => {
+                setSuggestionsOpen(open);
+                if (!open) setSuggestionTargetId(null);
               }}
               className="lineup-chat-controls absolute z-[200]"
             />

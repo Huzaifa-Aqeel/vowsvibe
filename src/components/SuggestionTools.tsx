@@ -19,15 +19,14 @@ interface Props {
   currentParticipantToken?: string | null;
   target: ParticipantRow | null;
   className?: string;
-  onEnabledChange?: (enabled: boolean) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function tokenQuery(token?: string | null) {
   return token ? `?token=${encodeURIComponent(token)}` : "";
 }
 
-export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onEnabledChange }: Props) {
-  const [enabled, setEnabled] = useState(false);
+export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onOpenChange }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const dismissedSuggestionIdsRef = useRef<Set<string>>(new Set());
@@ -38,10 +37,6 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
 
   const authQuery = tokenQuery(currentParticipantToken);
 
-  useEffect(() => {
-    if (enabled && target && target.id !== currentParticipantId) setPanelOpen(true);
-  }, [enabled, target, currentParticipantId]);
-
   async function refresh() {
     if (!currentParticipantId) return;
     setLoading(true);
@@ -49,10 +44,6 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
       const response = await fetch(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error ?? "Could not load suggestions");
-      const nextEnabled = Boolean(json.suggestions_enabled);
-      setEnabled(nextEnabled);
-      if (!nextEnabled) setPanelOpen(false);
-      onEnabledChange?.(nextEnabled);
       const incoming = (json.suggestions ?? []) as SuggestionItem[];
       setSuggestions(incoming.filter((suggestion) => !dismissedSuggestionIdsRef.current.has(suggestion.id)));
       setError(null);
@@ -68,7 +59,8 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     setError(null);
     dismissedSuggestionIdsRef.current = new Set();
     if (!currentParticipantId) {
-      setEnabled(false);
+      setPanelOpen(false);
+      onOpenChange?.(false);
       setSuggestions([]);
       return;
     }
@@ -102,30 +94,6 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, currentParticipantId, currentParticipantToken]);
 
-  async function toggleEnabled() {
-    if (!currentParticipantId || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/participants/${currentParticipantId}${authQuery}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ suggestions_enabled: !enabled }),
-      });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error ?? "Could not update suggestion setting");
-      const nextEnabled = Boolean(json.participant?.suggestions_enabled);
-      setEnabled(nextEnabled);
-      onEnabledChange?.(nextEnabled);
-      if (!nextEnabled) setPanelOpen(false);
-      setText("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update suggestion setting");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function dismissSuggestion(suggestionId: string) {
     // UI-only dismissal: keep the database row and realtime behavior untouched.
     dismissedSuggestionIdsRef.current = new Set(dismissedSuggestionIdsRef.current).add(suggestionId);
@@ -133,7 +101,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   }
 
   async function sendSuggestion() {
-    if (!currentParticipantId || !target || target.id === currentParticipantId || !enabled || !text.trim() || busy) return;
+    if (!currentParticipantId || !target || target.id === currentParticipantId || !text.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -157,7 +125,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
 
   return (
     <div className={`pointer-events-none flex flex-col items-end gap-2 ${className}`}>
-      {enabled && panelOpen && (
+      {panelOpen && (
         <div className="suggestion-sheet pointer-events-auto border border-white/80 bg-white/95 p-4 shadow-2xl shadow-stone-900/20 backdrop-blur-2xl">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -170,7 +138,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
               type="button"
               aria-label="Minimize suggestions"
               title="Minimize suggestions"
-              onClick={() => setPanelOpen(false)}
+              onClick={() => { setPanelOpen(false); onOpenChange?.(false); }}
               className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-500 transition active:bg-stone-100 active:text-stone-900 sm:hover:bg-stone-100 sm:hover:text-stone-900"
             >
               <X size={15} />
@@ -230,41 +198,25 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        {enabled && (
-          <button
-            type="button"
-            aria-label={panelOpen ? "Minimize suggestions" : "Open suggestions"}
-            title={panelOpen ? "Minimize suggestions" : "Open suggestions"}
-            onClick={() => setPanelOpen((current) => !current)}
-            className="pointer-events-auto relative grid h-14 w-14 touch-manipulation place-items-center rounded-full border border-white/70 bg-stone-900 text-white shadow-xl shadow-stone-900/25 transition active:bg-rose-950 sm:hover:-translate-y-0.5 sm:hover:bg-rose-950"
-          >
-            <MessageCircle size={22} />
-            {suggestions.length > 0 && (
-              <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-rose-600 px-1 text-[9px] font-bold text-white">
-                {suggestions.length > 99 ? "99+" : suggestions.length}
-              </span>
-            )}
-          </button>
+      <button
+        type="button"
+        aria-label={panelOpen ? "Close suggestions" : "Open suggestions"}
+        title={panelOpen ? "Close suggestions" : "Open suggestions"}
+        aria-expanded={panelOpen}
+        onClick={() => {
+          const nextOpen = !panelOpen;
+          setPanelOpen(nextOpen);
+          onOpenChange?.(nextOpen);
+        }}
+        className="pointer-events-auto relative grid h-14 w-14 touch-manipulation place-items-center rounded-full border border-white/70 bg-stone-900 text-white shadow-xl shadow-stone-900/25 transition active:bg-rose-950 sm:hover:-translate-y-0.5 sm:hover:bg-rose-950"
+      >
+        <MessageCircle size={22} />
+        {suggestions.length > 0 && (
+          <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-rose-600 px-1 text-[9px] font-bold text-white">
+            {suggestions.length > 99 ? "99+" : suggestions.length}
+          </span>
         )}
-
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/80 bg-white/85 px-3 py-2 shadow-lg backdrop-blur-xl">
-        <div className="flex min-w-0 items-center gap-2">
-          <MessageCircle size={14} className="shrink-0 text-rose-700" />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-600">Suggestions</span>
-        </div>
-        <button
-          type="button"
-          aria-pressed={enabled}
-          disabled={busy}
-          onClick={() => void toggleEnabled()}
-          className={`relative inline-flex h-11 w-14 shrink-0 touch-manipulation items-center rounded-full border transition ${enabled ? "border-stone-900 bg-stone-900" : "border-stone-300 bg-stone-200"}`}
-          title={enabled ? "Turn suggestions off" : "Turn suggestions on"}
-        >
-          <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-7" : "translate-x-1.5"}`} />
-        </button>
-      </div>
-      </div>
+      </button>
     </div>
   );
 }

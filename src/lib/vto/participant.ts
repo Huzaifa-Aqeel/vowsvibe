@@ -14,7 +14,6 @@ type ParticipantDbRow = {
   confirmed_look_id: string | null;
   status: ParticipantRow["status"];
   lineup_order: number;
-  suggestions_enabled: boolean;
   created_at: string;
   updated_at: string;
   lineup_x: number | null;
@@ -60,7 +59,6 @@ export function hydrateParticipant(row: ParticipantDbRow, attempts: VtoAttemptRo
     confirmed_look_id: row.confirmed_look_id ?? null,
     status: row.status,
     lineup_order: row.lineup_order,
-    suggestions_enabled: Boolean(row.suggestions_enabled ?? false),
     created_at: row.created_at,
     updated_at: row.updated_at,
     lineup_x: row.lineup_x ?? null,

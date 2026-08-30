@@ -95,6 +95,14 @@ body {
   padding-left: calc(1rem + env(safe-area-inset-left, 0px));
 }
 
+.lineup-studio-shell {
+  isolation: isolate;
+}
+
+.lineup-people-panel {
+  max-height: min(760px, 75vh);
+}
+
 .suggestion-sheet {
   position: fixed;
   z-index: 300;
@@ -153,6 +161,35 @@ body {
     max-height: min(70dvh, 34rem);
     border-radius: 1.5rem;
     padding-bottom: 1rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .lineup-people-scrim {
+    display: block;
+  }
+
+  .lineup-people-panel {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(19rem, calc(100vw - 2.5rem));
+    max-height: none;
+    margin-left: 0;
+    box-shadow: 18px 0 45px -24px rgba(41, 32, 27, 0.45);
+  }
+
+  .lineup-people-panel[aria-hidden="true"] {
+    transform: translateX(-105%);
+    pointer-events: none;
+  }
+
+  .lineup-suggestions-controls {
+    right: 0.75rem;
+    top: 0.75rem;
+  }
+
+  .lineup-sticky-actions {
+    gap: 0.5rem;
   }
 }
 

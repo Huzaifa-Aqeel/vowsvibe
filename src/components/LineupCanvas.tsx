@@ -4,10 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
   Download,
   GripVertical,
+  PanelLeftOpen,
   Save,
   Trash2,
+  X,
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
@@ -193,6 +196,7 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [suggestionMode, setSuggestionMode] = useState(false);
   const suggestionModeRef = useRef(false);
+  const [peopleOpen, setPeopleOpen] = useState(true);
 
   const confirmedParticipants = useMemo(
     () => participants.filter((p) => p.status === "confirmed" && p.cutout_url),
@@ -601,44 +605,93 @@ const filteredIds = useMemo(() => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(8);
   }
 
-  return (
-    <div ref={stageRef} className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-stone-950 shadow-2xl">
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_30%,rgba(255,255,255,0.28),transparent_55%),linear-gradient(to_bottom,rgba(250,248,245,0.98),rgba(213,205,198,0.98))]" />
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_45%,transparent_48%,rgba(20,16,14,0.12)_100%)]" />
+  function selectPerson(participantId: string) {
+    if (suggestionModeRef.current) return;
+    const canvas = canvasRef.current;
+    const object = objectMapRef.current.get(participantId);
+    if (!canvas || !object) return;
+    selectedIdRef.current = participantId;
+    setSelectedId(participantId);
+    canvas.setActiveObject(object);
+    canvas.requestRenderAll();
+    refreshGeometry();
+  }
 
-      <div className="relative z-20 border-b border-white/50 bg-white/45 px-3 py-1.5 backdrop-blur-xl sm:px-5 sm:py-2">
-        <div className="mb-1 flex items-center justify-between">
+  function dropPerson(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (suggestionModeRef.current) return;
+    const participantId = event.dataTransfer.getData("application/x-lineup-participant");
+    const canvas = canvasRef.current;
+    const canvasElement = canvasElementRef.current;
+    const object = objectMapRef.current.get(participantId);
+    if (!participantId || !canvas || !canvasElement || !object) return;
+
+    const rect = canvasElement.getBoundingClientRect();
+    const x = Math.max(0, Math.min(canvas.getWidth(), event.clientX - rect.left));
+    const visibleBottom = Math.max(0, Math.min(canvas.getHeight(), event.clientY - rect.top));
+    const baselineOffset = baselineOffsetRef.current.get(participantId) ?? 0;
+    object.set({ left: x, top: visibleBottom + baselineOffset, opacity: 1 });
+    object.setCoords();
+    canvas.setActiveObject(object);
+    setPositions((current) => ({
+      ...current,
+      [participantId]: {
+        ...(current[participantId] ?? { participant_id: participantId, scale: 1, z_index: 0 }),
+        x: x / canvas.getWidth(),
+        y: 1 - visibleBottom / canvas.getHeight(),
+        hidden: false,
+      },
+    }));
+    selectedIdRef.current = participantId;
+    setSelectedId(participantId);
+    canvas.requestRenderAll();
+    refreshGeometry();
+  }
+
+  return (
+    <div ref={stageRef} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
+      {peopleOpen && (
+        <button type="button" aria-label="Close People panel" onClick={() => setPeopleOpen(false)} className="lineup-people-scrim absolute inset-0 z-[70] hidden bg-stone-950/20 backdrop-blur-[2px]" />
+      )}
+
+      <aside className={`lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95 transition-[margin,transform] duration-300 ${peopleOpen ? "ml-0 translate-x-0" : "-ml-[300px] -translate-x-full"}`} aria-hidden={!peopleOpen}>
+        <div className="flex items-center justify-between border-b border-stone-200/70 px-5 py-4">
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-rose-800">Color harmony</p>
-            <h2 className="font-serif text-base text-stone-900 sm:text-lg">Your palette, in the room</h2>
+            <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-rose-800">Bridal party</p>
+            <h2 className="mt-0.5 font-serif text-xl text-stone-900">People</h2>
           </div>
+          <button type="button" onClick={() => setPeopleOpen(false)} className="grid h-10 w-10 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-900" aria-label="Collapse People panel">
+            <ChevronLeft className="hidden md:block" size={18} /><X className="md:hidden" size={18} />
+          </button>
         </div>
-        <div className="flex min-w-0 items-center gap-2 pb-1">
-          <div className="inline-flex shrink-0 rounded-full border border-stone-200/80 bg-stone-100/75 p-1 shadow-inner backdrop-blur-md" role="group" aria-label="Palette matching mode">
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Filter by color</p>
+            <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-stone-100 p-1" role="group" aria-label="Palette matching mode">
             <button
               type="button"
               onClick={() => { vibrate(); setPaletteMatchMode("palette"); setActiveSwatch(null); }}
-                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "palette" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
+                className={`min-h-9 rounded-lg px-1.5 py-1 text-[9px] font-semibold transition ${paletteMatchMode === "palette" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}
             >
               Palette Match
             </button>
             <button
               type="button"
               onClick={() => { vibrate(); setPaletteMatchMode("family"); setActiveSwatch(null); }}
-                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "family" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
+                className={`min-h-9 rounded-lg px-1.5 py-1 text-[9px] font-semibold transition ${paletteMatchMode === "family" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}
             >
               Family Match
             </button>
             <button
               type="button"
               onClick={() => { vibrate(); setPaletteMatchMode("other"); setActiveSwatch(null); }}
-                className={`min-h-11 touch-manipulation rounded-full px-3 py-1.5 text-[10px] font-semibold transition ${paletteMatchMode === "other" ? "bg-stone-900 text-white shadow-md" : "text-stone-700 active:bg-white sm:hover:bg-white"}`}
+                className={`min-h-9 rounded-lg px-1.5 py-1 text-[9px] font-semibold transition ${paletteMatchMode === "other" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-900"}`}
             >
               Other
             </button>
-          </div>
-          <span aria-hidden="true" className="h-6 w-px shrink-0 bg-stone-300/60" />
-          <div className="-ml-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 sm:gap-2">
+            </div>
+          <div className="mt-2 space-y-1.5">
           {paletteMatchMode === "other" ? (
             <button
               type="button"
@@ -646,7 +699,7 @@ const filteredIds = useMemo(() => {
                 vibrate();
                 setActiveSwatch(activeSwatch === OTHER_FILTER_ID ? null : OTHER_FILTER_ID);
               }}
-              className={`group inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ${activeSwatch === OTHER_FILTER_ID ? "border-rose-300 bg-rose-50/80 shadow-sm ring-1 ring-rose-100" : "border-stone-200/90 bg-white/75 shadow-[0_1px_2px_rgba(28,25,23,0.06)] active:border-stone-300 active:bg-white sm:hover:border-stone-300 sm:hover:bg-white"}`}
+              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition ${activeSwatch === OTHER_FILTER_ID ? "border-rose-200 bg-rose-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
             >
               <span className="font-medium text-stone-800">All Other</span>
               <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{otherIds.size}</span>
@@ -657,6 +710,7 @@ const filteredIds = useMemo(() => {
               .filter((p) => matchesSwatch(p, swatch, palette, paletteMatchMode))
               .length;
             const active = activeSwatch === swatch.id;
+            const hasMatches = count > 0;
             return (
               <button
                 key={swatch.id}
@@ -665,15 +719,16 @@ const filteredIds = useMemo(() => {
                   else swatchRefs.current.delete(swatch.id);
                 }}
                 type="button"
+                disabled={!hasMatches}
                 onClick={() => { vibrate(); setActiveSwatch(active ? null : swatch.id); }}
-                className={`group inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ${active ? "border-rose-300 bg-rose-50/80 shadow-sm ring-1 ring-rose-100" : "border-stone-200/90 bg-white/75 shadow-[0_1px_2px_rgba(28,25,23,0.06)] active:border-stone-300 active:bg-white sm:hover:border-stone-300 sm:hover:bg-white"}`}
+                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition ${active ? "border-rose-200 bg-rose-50 ring-1 ring-rose-100" : hasMatches ? "border-stone-200 bg-white hover:border-stone-300" : "cursor-not-allowed border-stone-100 bg-stone-50 opacity-45"}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className="h-4 w-10 rounded-full border border-black/10 shadow-inner" style={{ backgroundColor: swatch.hex }} />
+                  <span className="h-4 w-4 rounded-full border border-black/10 shadow-inner" style={{ backgroundColor: swatch.hex }} />
                   <span className="font-medium text-stone-800">{swatch.name}</span>
                   <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{count}</span>
                 </span>
-                <span className="mt-1 flex min-h-3 items-center justify-center gap-1">
+                <span className="hidden">
                   {confirmedParticipants
   .filter((participant) => participant.role === "bridesmaid")
   .filter((participant) => matchesSwatch(participant, swatch, palette, paletteMatchMode))
@@ -690,10 +745,58 @@ const filteredIds = useMemo(() => {
             );
           })}
           </div>
-        </div>
-      </div>
+          </div>
 
-      <div className="relative min-h-[280px] px-0 pb-20 pt-2">
+          <div className="my-4 h-px bg-stone-200/80" />
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">In this lineup</p>
+            <span className="text-[10px] tabular-nums text-stone-400">{confirmedParticipants.filter((p) => p.role === "bridesmaid").length}</span>
+          </div>
+          <div className="space-y-2">
+            {confirmedParticipants.filter((participant) => participant.role === "bridesmaid").map((participant) => {
+              const dimmed = Boolean(filteredIds && !filteredIds.has(participant.id));
+              return (
+                <div
+                  key={participant.id}
+                  draggable={!suggestionMode}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData("application/x-lineup-participant", participant.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    selectPerson(participant.id);
+                  }}
+                  onClick={() => selectPerson(participant.id)}
+                  className={`group flex cursor-grab items-center gap-3 rounded-xl border bg-white p-2 shadow-sm transition active:cursor-grabbing ${selectedId === participant.id ? "border-rose-300 ring-2 ring-rose-100" : "border-stone-200 hover:border-stone-300"} ${dimmed ? "opacity-45 grayscale" : "opacity-100"}`}
+                >
+                  <div className="grid h-12 w-11 shrink-0 place-items-end overflow-hidden rounded-lg bg-[#eee7df]">
+                    <img src={participant.cutout_url ?? ""} alt="" className="h-full w-full object-contain object-bottom" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold text-stone-900">{participant.name}</p>
+                    <p className="mt-0.5 truncate text-[10px] capitalize text-stone-400">{participant.role}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: participant.confirmed_dress_primary_hex ?? "#d6d3d1" }} />
+                      <span className="truncate text-[10px] text-stone-600">{participant.confirmed_dress_color_name ?? "Dress color"}</span>
+                    </div>
+                  </div>
+                  <GripVertical size={15} className="shrink-0 text-stone-300 transition group-hover:text-stone-500" />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <p className="border-t border-stone-200/70 px-5 py-3 text-[10px] leading-4 text-stone-400">Drag a person onto the studio, or select them to arrange layers.</p>
+      </aside>
+
+      <div className="relative min-w-0 flex-1 overflow-hidden bg-[#f3ede5]" onDragOver={(event) => event.preventDefault()} onDrop={dropPerson}>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_24%,rgba(255,255,255,0.96),rgba(250,247,241,0.76)_48%,rgba(226,216,205,0.82)_100%)]" />
+        <div className="pointer-events-none absolute inset-x-[8%] bottom-[12%] h-px bg-stone-500/15 shadow-[0_1px_14px_rgba(80,65,55,0.12)]" />
+        {!peopleOpen && (
+          <button type="button" onClick={() => setPeopleOpen(true)} className="absolute left-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-white/80 bg-white/90 px-3.5 text-xs font-semibold text-stone-800 shadow-md backdrop-blur-xl transition hover:bg-white">
+            <PanelLeftOpen size={15} /><span>People</span>
+          </button>
+        )}
+
+      <div className="relative min-h-[280px] px-0 pb-20">
         <canvas ref={canvasElementRef} className="lineup-drag-surface relative z-10 block h-full w-full" />
 
         {!suggestionMode && selectedParticipant && selectedId && (
@@ -710,7 +813,7 @@ const filteredIds = useMemo(() => {
           </div>
         )}
 
-        <div className="pointer-events-none absolute bottom-28 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/50 bg-white/35 px-3 py-1 text-[10px] font-medium text-stone-500 backdrop-blur-md">
+        <div className="pointer-events-none absolute bottom-28 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/70 bg-white/60 px-3 py-1 text-[10px] font-medium text-stone-500 backdrop-blur-md">
           <GripVertical size={12} className="mr-1 inline" /> Drag people to place their feet on the floor
         </div>
       </div>
@@ -719,10 +822,10 @@ const filteredIds = useMemo(() => {
   eventId={event.id}
   currentParticipantId={bride?.id ?? null}
   target={selectedParticipant && selectedParticipant.id !== bride?.id ? selectedParticipant : null}
-  onEnabledChange={syncSuggestionMode}
-  className="lineup-chat-controls lineup-chat-controls--above-actions absolute z-50"
+  onOpenChange={syncSuggestionMode}
+  className="lineup-suggestions-controls absolute right-4 top-4 z-50"
 />
-<div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/60 bg-white/55 px-4 pt-3 backdrop-blur-xl sm:px-6">
+<div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/70 bg-[#fffdf9]/80 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
     <button
       type="button"
@@ -732,7 +835,7 @@ const filteredIds = useMemo(() => {
       }}
       className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"
     >
-      <Download size={15} /> Download
+      <Download size={15} /> Download PNG
     </button>
     <button
       type="button"
@@ -754,6 +857,7 @@ const filteredIds = useMemo(() => {
       )}
 
       <div key={geometryVersion} className="sr-only" aria-hidden="true" />
+      </div>
     </div>
   );
 }

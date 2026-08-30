@@ -31,7 +31,7 @@ export interface ParticipantRow {
   id: string; event_id: string; name: string; session_token: string; role: ParticipantRole;
   original_photo_path: string | null; original_photo_url: string | null;
   confirmed_look_id: string | null;
-  status: ParticipantStatus; lineup_order: number; suggestions_enabled: boolean;
+  status: ParticipantStatus; lineup_order: number;
   lineup_x: number | null; lineup_y: number | null; lineup_scale: number; lineup_z_index: number; lineup_hidden: boolean;
   created_at: string; updated_at: string;
   skin_tone_hex: string | null; skin_undertone: "warm" | "cool" | "neutral" | null;

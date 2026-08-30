@@ -5,7 +5,7 @@ async function authorize(participantId: string, token: string | null) {
   const service = createServiceRoleClient();
   const { data: participant } = await service
     .from("participants")
-    .select("id,event_id,user_id,name,role,status,confirmed_look_id,suggestions_enabled,session_token")
+    .select("id,event_id,user_id,name,role,status,confirmed_look_id,session_token")
     .eq("id", participantId)
     .maybeSingle();
   if (!participant) return { ok: false as const, status: 404, message: "Participant not found" };
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest, { params }: { params: { participantI
 
   try {
     const suggestions = await readSuggestions(auth.service, auth.participant.id, auth.participant.confirmed_look_id);
-    return NextResponse.json({ suggestions_enabled: Boolean(auth.participant.suggestions_enabled), suggestions });
+    return NextResponse.json({ suggestions });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load suggestions" }, { status: 500 });
   }
@@ -71,10 +71,6 @@ export async function POST(req: NextRequest, { params }: { params: { participant
   if (auth.participant.status !== "confirmed" || !auth.participant.confirmed_look_id) {
     return NextResponse.json({ error: "Confirm your look before sending suggestions." }, { status: 409 });
   }
-  if (!auth.participant.suggestions_enabled) {
-    return NextResponse.json({ error: "Turn suggestions on before sending one." }, { status: 403 });
-  }
-
   const body = (await req.json()) as { to_participant_id?: unknown; text?: unknown };
   const targetId = typeof body.to_participant_id === "string" ? body.to_participant_id : "";
   const text = typeof body.text === "string" ? body.text.trim() : "";

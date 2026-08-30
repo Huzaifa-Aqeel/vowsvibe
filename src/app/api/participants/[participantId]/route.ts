@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { participantI
   return NextResponse.json({ participant: result.participant });
 }
 
-const ALLOWED_FIELDS = ["original_photo_path", "status", "suggestions_enabled"] as const;
+const ALLOWED_FIELDS = ["original_photo_path", "status"] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: { participantId: string } }) {
   const auth = await authorize(params.participantId, req.nextUrl.searchParams.get("token"));

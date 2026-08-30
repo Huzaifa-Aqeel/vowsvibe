@@ -14,11 +14,12 @@ import {
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
-import { classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
+import { classifyBridalPaletteBadge, classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
 import { browserFileActions } from "@/lib/platform/file-actions";
 
 const FABRIC_CDN = "https://cdn.jsdelivr.net/npm/fabric@6.7.1/dist/index.min.js";
-const OTHER_FILTER_ID = "all-other";
+const SAME_FAMILY_OTHER_FILTER_ID = "same-family-other";
+const CUSTOM_OTHER_FILTER_ID = "custom-other";
 
 interface FabricImageLike {
   participantId?: string;
@@ -116,7 +117,7 @@ function matchesSwatch(
 
 function defaultPosition(participant: ParticipantRow, index: number, participants: ParticipantRow[]): LineupPosition {
   if (participant.role === "bride") {
-    return { participant_id: participant.id, x: 0.5, y: 0.07, scale: 1, z_index: 100, hidden: false };
+    return { participant_id: participant.id, x: 0.5, y: 0.07, z_index: 100, hidden: false };
   }
 
   const bridesmaids = participants.filter((p) => p.role === "bridesmaid");
@@ -125,7 +126,7 @@ function defaultPosition(participant: ParticipantRow, index: number, participant
   const side = ordinal % 2 === 0 ? 1 : -1;
   const distance = 0.12 + Math.floor(ordinal / 2) * 0.115;
   const x = Math.max(0.06, Math.min(0.94, 0.5 + side * distance));
-  return { participant_id: participant.id, x, y: 0.07, scale: 1, z_index: brideIndex >= 0 ? 50 - index : 50 - ordinal, hidden: false };
+  return { participant_id: participant.id, x, y: 0.07, z_index: brideIndex >= 0 ? 50 - index : 50 - ordinal, hidden: false };
 }
 
 function responsiveCanvasHeight(width: number, element: HTMLCanvasElement) {
@@ -223,12 +224,36 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
     [confirmedParticipants, palette],
   );
 
-const filteredIds = useMemo(() => {
-  if (!activeSwatch) return null;
+  const sameFamilyOtherIds = useMemo(
+    () => new Set(
+      confirmedParticipants
+        .filter((participant) => participant.role === "bridesmaid")
+        .filter((participant) => classifyBridalPaletteBadge(
+          participant.confirmed_dress_color_name,
+          participant.confirmed_dress_primary_hex ?? null,
+          palette,
+        ) === "same-family")
+        .map((participant) => participant.id),
+    ),
+    [confirmedParticipants, palette],
+  );
 
+  const customOtherIds = useMemo(
+    () => new Set([...otherIds].filter((id) => !sameFamilyOtherIds.has(id))),
+    [otherIds, sameFamilyOtherIds],
+  );
+
+const filteredIds = useMemo(() => {
   if (paletteMatchMode === "other") {
-    return activeSwatch === OTHER_FILTER_ID ? otherIds : null;
+    // The top-level Other tab itself filters to all Other bridesmaids. The two
+    // optional subfilters narrow that set without needing an "All Other" button.
+    if (!activeSwatch) return otherIds;
+    if (activeSwatch === SAME_FAMILY_OTHER_FILTER_ID) return sameFamilyOtherIds;
+    if (activeSwatch === CUSTOM_OTHER_FILTER_ID) return customOtherIds;
+    return null;
   }
+
+  if (!activeSwatch) return null;
 
   const swatch = palette.find((item) => item.id === activeSwatch);
   if (!swatch) return null;
@@ -254,7 +279,23 @@ const filteredIds = useMemo(() => {
   palette,
   paletteMatchMode,
   otherIds,
+  sameFamilyOtherIds,
+  customOtherIds,
 ]);
+
+  const filteredPeople = useMemo(() => {
+    const categoryMatches = confirmedParticipants
+      .filter((participant) => participant.role === "bridesmaid")
+      .filter((participant) => classifyPaletteRelationship(
+        participant.confirmed_dress_color_name,
+        participant.confirmed_dress_primary_hex ?? null,
+        palette,
+      ) === paletteMatchMode);
+
+    return filteredIds
+      ? categoryMatches.filter((participant) => filteredIds.has(participant.id))
+      : categoryMatches;
+  }, [confirmedParticipants, filteredIds, palette, paletteMatchMode]);
 
   const refreshGeometry = () => setGeometryVersion((v) => v + 1);
 
@@ -399,6 +440,13 @@ const filteredIds = useMemo(() => {
         });
         canvas.on("object:moving", (e) => {
           if (!e.target?.participantId) return;
+          const baselineOffset = baselineOffsetRef.current.get(e.target.participantId) ?? 0;
+          const visibleBottom = e.target.top - baselineOffset;
+          // Fabric positions the transparent PNG bottom, while the studio guide and saved y
+          // position refer to the person's visible feet. Keep that visible baseline inside
+          // the canvas even when cutouts have different amounts of transparent bottom padding.
+          if (visibleBottom > canvas.getHeight()) e.target.set({ top: canvas.getHeight() + baselineOffset });
+          else if (visibleBottom < 0) e.target.set({ top: baselineOffset });
           geometryRef.current.set(e.target.participantId, {
             x: e.target.left,
             y: e.target.top,
@@ -409,15 +457,20 @@ const filteredIds = useMemo(() => {
         });
         canvas.on("object:modified", (e) => {
           if (!e.target?.participantId) return;
+          const baselineOffset = baselineOffsetRef.current.get(e.target.participantId) ?? 0;
+          const visibleBottom = e.target.top - baselineOffset;
+          if (visibleBottom > canvas.getHeight()) e.target.set({ top: canvas.getHeight() + baselineOffset });
+          else if (visibleBottom < 0) e.target.set({ top: baselineOffset });
+          e.target.setCoords();
           geometryRef.current.set(e.target.participantId, {
             x: e.target.left,
             y: e.target.top,
             width: e.target.getScaledWidth(),
             height: e.target.getScaledHeight(),
           });
-          const next = { ...(positions[e.target.participantId] ?? { participant_id: e.target.participantId, x: 0.5, y: 0.07, scale: 1, z_index: 0, hidden: false }) };
+          const next = { ...(positions[e.target.participantId] ?? { participant_id: e.target.participantId, x: 0.5, y: 0.07, z_index: 0, hidden: false }) };
           next.x = e.target.left / canvas.getWidth();
-          next.y = 1 - (e.target.top - (baselineOffsetRef.current.get(e.target.participantId) ?? 0)) / canvas.getHeight();
+          next.y = 1 - (e.target.top - baselineOffset) / canvas.getHeight();
           setPositions((current) => ({ ...current, [e.target!.participantId!]: next }));
           refreshGeometry();
         });
@@ -484,7 +537,10 @@ const filteredIds = useMemo(() => {
     const to = new Map<string, number>();
 
     canvas.getObjects().forEach((object) => {
-      const selected = filteredIds ? filteredIds.has(object.participantId ?? "") : true;
+      // Palette filters are exclusively for bridesmaids. The bride remains fully visible
+      // as the fixed composition reference regardless of the active filter.
+      const isBride = object.participantId === bride?.id;
+      const selected = isBride || (filteredIds ? filteredIds.has(object.participantId ?? "") : true);
       const target = positions[object.participantId ?? ""]?.hidden ? 0 : selected ? 1 : 0.3;
       from.set(object.participantId ?? "", object.opacity ?? 1);
       to.set(object.participantId ?? "", target);
@@ -508,7 +564,7 @@ const filteredIds = useMemo(() => {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [filteredIds, positions]);
+  }, [bride?.id, filteredIds, positions]);
 
   function layer(delta: 1 | -1) {
     const canvas = canvasRef.current;
@@ -520,7 +576,7 @@ const filteredIds = useMemo(() => {
     else canvas.sendObjectBackwards(object);
     const order = canvas.getObjects();
     const z = order.findIndex((candidate) => candidate.participantId === id);
-    setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), scale: 1, hidden: false }), z_index: z } }));
+    setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), hidden: false }), z_index: z } }));
     canvas.requestRenderAll();
   }
 
@@ -531,7 +587,7 @@ const filteredIds = useMemo(() => {
     const object = objectMapRef.current.get(id);
     if (!object) return;
     object.set({ opacity: 0 });
-    setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), scale: 1, z_index: 0 }), hidden: true } }));
+    setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), z_index: 0 }), hidden: true } }));
     canvas.discardActiveObject?.();
     setSelectedId(null);
     canvas.requestRenderAll();
@@ -568,7 +624,6 @@ const filteredIds = useMemo(() => {
           participant_id: participant.id,
           x: object ? object.left / canvas.getWidth() : current.x,
           y: object ? 1 - (object.top - (baselineOffsetRef.current.get(participant.id) ?? 0)) / canvas.getHeight() : current.y,
-          scale: 1,
           z_index: canvas.getObjects().findIndex((candidate) => candidate.participantId === participant.id),
           hidden: Boolean(current.hidden),
         };
@@ -636,7 +691,7 @@ const filteredIds = useMemo(() => {
     setPositions((current) => ({
       ...current,
       [participantId]: {
-        ...(current[participantId] ?? { participant_id: participantId, scale: 1, z_index: 0 }),
+        ...(current[participantId] ?? { participant_id: participantId, z_index: 0 }),
         x: x / canvas.getWidth(),
         y: 1 - visibleBottom / canvas.getHeight(),
         hidden: false,
@@ -693,17 +748,46 @@ const filteredIds = useMemo(() => {
             </div>
           <div className="mt-2 space-y-1.5">
           {paletteMatchMode === "other" ? (
-            <button
-              type="button"
-              onClick={() => {
-                vibrate();
-                setActiveSwatch(activeSwatch === OTHER_FILTER_ID ? null : OTHER_FILTER_ID);
-              }}
-              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition ${activeSwatch === OTHER_FILTER_ID ? "border-rose-200 bg-rose-50" : "border-stone-200 bg-white hover:border-stone-300"}`}
-            >
-              <span className="font-medium text-stone-800">All Other</span>
-              <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{otherIds.size}</span>
-            </button>
+            <div className="space-y-1.5">
+              <p className="px-1 text-[10px] leading-4 text-stone-400">
+                Shades outside an exact or close-enough palette match.
+              </p>
+              {[
+                {
+                  id: SAME_FAMILY_OTHER_FILTER_ID,
+                  label: "Related shade",
+                  description: "Same color family, but too far from the palette shade.",
+                  count: sameFamilyOtherIds.size,
+                },
+                {
+                  id: CUSTOM_OTHER_FILTER_ID,
+                  label: "Different family",
+                  description: "A custom color from outside the palette families.",
+                  count: customOtherIds.size,
+                },
+              ].map((option) => {
+                const active = activeSwatch === option.id;
+                const hasMatches = option.count > 0;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={!hasMatches}
+                    onClick={() => {
+                      vibrate();
+                      setActiveSwatch(active ? null : option.id);
+                    }}
+                    className={`flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2 text-left transition ${active ? "border-rose-200 bg-rose-50 ring-1 ring-rose-100" : hasMatches ? "border-stone-200 bg-white hover:border-stone-300" : "cursor-not-allowed border-stone-100 bg-stone-50 opacity-45"}`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-stone-800">{option.label}</span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-stone-400">{option.description}</span>
+                    </span>
+                    <span className="mt-0.5 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">{option.count}</span>
+                  </button>
+                );
+              })}
+            </div>
           ) : palette.map((swatch) => {
             const count = confirmedParticipants
               .filter((p) => p.role === "bridesmaid")
@@ -750,12 +834,14 @@ const filteredIds = useMemo(() => {
           <div className="my-4 h-px bg-stone-200/80" />
           <div className="mb-2 flex items-center justify-between">
             <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">In this lineup</p>
-            <span className="text-[10px] tabular-nums text-stone-400">{confirmedParticipants.filter((p) => p.role === "bridesmaid").length}</span>
+            <span className="text-[10px] tabular-nums text-stone-400">{filteredPeople.length}</span>
           </div>
           <div className="space-y-2">
-            {confirmedParticipants.filter((participant) => participant.role === "bridesmaid").map((participant) => {
-              const dimmed = Boolean(filteredIds && !filteredIds.has(participant.id));
-              return (
+            {filteredPeople.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-stone-200 px-3 py-4 text-center text-xs leading-5 text-stone-400">
+                No bridesmaids in this category.
+              </p>
+            ) : filteredPeople.map((participant) => (
                 <div
                   key={participant.id}
                   draggable={!suggestionMode}
@@ -765,7 +851,7 @@ const filteredIds = useMemo(() => {
                     selectPerson(participant.id);
                   }}
                   onClick={() => selectPerson(participant.id)}
-                  className={`group flex cursor-grab items-center gap-3 rounded-xl border bg-white p-2 shadow-sm transition active:cursor-grabbing ${selectedId === participant.id ? "border-rose-300 ring-2 ring-rose-100" : "border-stone-200 hover:border-stone-300"} ${dimmed ? "opacity-45 grayscale" : "opacity-100"}`}
+                  className={`group flex cursor-grab items-center gap-3 rounded-xl border bg-white p-2 shadow-sm transition active:cursor-grabbing ${selectedId === participant.id ? "border-rose-300 ring-2 ring-rose-100" : "border-stone-200 hover:border-stone-300"}`}
                 >
                   <div className="grid h-12 w-11 shrink-0 place-items-end overflow-hidden rounded-lg bg-[#eee7df]">
                     <img src={participant.cutout_url ?? ""} alt="" className="h-full w-full object-contain object-bottom" />
@@ -780,8 +866,7 @@ const filteredIds = useMemo(() => {
                   </div>
                   <GripVertical size={15} className="shrink-0 text-stone-300 transition group-hover:text-stone-500" />
                 </div>
-              );
-            })}
+              ))}
           </div>
         </div>
         <p className="border-t border-stone-200/70 px-5 py-3 text-[10px] leading-4 text-stone-400">Drag a person onto the studio, or select them to arrange layers.</p>

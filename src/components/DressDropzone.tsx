@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SwatchColor } from "@/lib/types";
+import { prepareImageUpload } from "@/lib/images/prepare-upload";
 
 export interface DressColorMeta {
   primaryHex: string | null;
@@ -85,8 +86,9 @@ export function DressDropzone({
       setUploadedUrl(localUrl);
 
       try {
+        const preparedFile = await prepareImageUpload(file);
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", preparedFile);
         formData.append("folder", folder);
         const res = await fetch("/api/upload", { method: "POST", body: formData });
         const json = await res.json();

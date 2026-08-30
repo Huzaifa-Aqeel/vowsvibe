@@ -28,7 +28,7 @@ export function PublicLineupBoard({ eventId, eventTitle, currentParticipantId, c
   }, [eventId]);
 
   if (participants === null) {
-    return <div className="lineup-expanded-scene w-full animate-pulse rounded-2xl bg-stone-100" />;
+    return <div className="lineup-expanded-scene w-full animate-pulse rounded-xl bg-stone-100" />;
   }
 
   return (

@@ -10,7 +10,8 @@ export async function extractCutout(renderPath: string, attemptId: string, role:
   const renderUrl = publicStorageUrl(renderPath);
   if (!renderUrl) throw new Error("Confirmed render is missing — cannot extract a cutout");
 
-  const cutoutBlob = await removeBackground(renderUrl);
+  // The quantized model materially reduces cold-start asset and compute cost on Vercel.
+  const cutoutBlob = await removeBackground(renderUrl, { model: "small" });
   const buffer = Buffer.from(await cutoutBlob.arrayBuffer());
 
   const folder = role === "bride" ? "vto-cutouts/bride" : "vto-cutouts/bridesmaid";

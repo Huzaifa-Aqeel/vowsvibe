@@ -143,6 +143,23 @@ npm run build
 npm run dev
 ```
 
+## Deploy to Vercel
+
+1. Import the repository into Vercel and keep the framework preset set to **Next.js**.
+2. Set the project Node.js version to **22.x**.
+3. Copy every required value from `.env.example` into Vercel Environment Variables for
+   Production and Preview. Set `NEXT_PUBLIC_SITE_URL` to the deployed HTTPS origin.
+4. Set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1`. Confirming a look runs the native IMG.LY/ONNX
+   cutout model, whose function bundle exceeds Vercel's standard function size.
+5. Enable Fluid Compute. The two confirmation routes allow up to 300 seconds so a cold
+   cutout-model start can finish reliably.
+6. In Supabase Auth, add `https://YOUR_DOMAIN/auth/callback` to the allowed redirect URLs
+   and set the Site URL to the deployed origin.
+7. Run `supabase/schema.sql` against the production Supabase project, then deploy.
+
+Large camera files are resized in the browser before upload because Vercel Functions have
+a fixed 4.5 MB request-body limit. Server routes enforce a matching 4 MB file ceiling.
+
 ## Repository Structure
 
 ```text
@@ -166,7 +183,7 @@ src/
 │   ├── storage/           # Supabase Storage helpers
 │   ├── supabase/          # Browser/server clients
 │   └── youcam/            # Perfect Corp API integration
-└── middleware.ts          # Supabase auth session refresh
+└── proxy.ts               # Supabase auth session refresh
 ```
 
 **Disclaimer:** The color analysis is intended as guidance rather than a strict rule. It provides a mathematical way to compare colors using undertone, lightness, contrast, and perceptual color difference, but the final choice always remains with the bride and the person wearing the dress.

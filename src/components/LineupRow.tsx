@@ -33,13 +33,60 @@ function centeredLineup(rows: ParticipantRow[]) {
   return [...left.slice().reverse(), bride, ...right];
 }
 
+type VisibleImageBounds = {
+  /** Full source-image height divided by the visible (non-transparent) person height. */
+  imageToVisibleRatio: number;
+  /** Source-image width divided by the visible person height. */
+  imageWidthToVisibleHeightRatio: number;
+  /** Transparent pixels below the person divided by the visible person height. */
+  bottomPaddingToVisibleRatio: number;
+};
+
+const DEFAULT_VISIBLE_BOUNDS: VisibleImageBounds = {
+  imageToVisibleRatio: 1,
+  imageWidthToVisibleHeightRatio: 1,
+  bottomPaddingToVisibleRatio: 0,
+};
+
 /**
- * How tall each figure stands, as a percent of the scene's height. Shrinks modestly as the
- * party grows so a bigger lineup still fits without cramming — holds close to full size for
- * the common case of a bride plus a handful of bridesmaids.
+ * Mirrors LineupCanvas.visiblePersonBounds for the plain-image public renderer. Cutouts can
+ * contain very different amounts of transparent padding; measuring alpha keeps their visible
+ * bodies at the same scale and lets saved y coordinates anchor their feet, not the PNG edge.
  */
-function figureHeightPct(total: number) {
-  return Math.max(66, 90 - total * 3);
+function measureVisibleImageBounds(image: HTMLImageElement): VisibleImageBounds {
+  if (!image.naturalWidth || !image.naturalHeight) return DEFAULT_VISIBLE_BOUNDS;
+
+  try {
+    const sampleHeight = Math.min(512, Math.max(1, image.naturalHeight));
+    const sampleWidth = Math.max(1, Math.round((image.naturalWidth / image.naturalHeight) * sampleHeight));
+    const sample = document.createElement("canvas");
+    sample.width = sampleWidth;
+    sample.height = sampleHeight;
+    const context = sample.getContext("2d", { willReadFrequently: true });
+    if (!context) return DEFAULT_VISIBLE_BOUNDS;
+    context.drawImage(image, 0, 0, sampleWidth, sampleHeight);
+    const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+    let firstRow = sampleHeight;
+    let lastRow = -1;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        if (pixels[(y * sampleWidth + x) * 4 + 3] > 16) {
+          firstRow = Math.min(firstRow, y);
+          lastRow = Math.max(lastRow, y);
+        }
+      }
+    }
+    if (lastRow < firstRow) return DEFAULT_VISIBLE_BOUNDS;
+    const visibleRows = Math.max(1, lastRow - firstRow + 1);
+    return {
+      imageToVisibleRatio: sampleHeight / visibleRows,
+      imageWidthToVisibleHeightRatio: sampleWidth / visibleRows,
+      bottomPaddingToVisibleRatio: Math.max(0, sampleHeight - lastRow - 1) / visibleRows,
+    };
+  } catch {
+    // A storage host without image CORS cannot be sampled. The unadjusted cutout remains usable.
+    return DEFAULT_VISIBLE_BOUNDS;
+  }
 }
 
 /**
@@ -86,12 +133,12 @@ export function LineupRow({
   expanded = false,
 }: Props) {
   const [participants, setParticipants] = useState<ParticipantRow[]>(() => centeredLineup(initialParticipants));
+  const [visibleBounds, setVisibleBounds] = useState<Record<string, VisibleImageBounds>>({});
   const [positions, setPositions] = useState<Record<string, LineupPosition>>(() => Object.fromEntries(
     initialParticipants.map((participant) => [participant.id, {
       participant_id: participant.id,
       x: participant.lineup_x ?? 0.5,
       y: participant.lineup_y ?? 0.07,
-      scale: participant.lineup_scale ?? 1,
       z_index: participant.lineup_z_index ?? 0,
       hidden: participant.lineup_hidden ?? false,
     }]),
@@ -175,24 +222,23 @@ export function LineupRow({
     });
   }, [participants]);
 
-  const baseHeightPct = figureHeightPct(participants.length);
   const suggestionTarget = suggestionTargetId ? participants.find((p) => p.id === suggestionTargetId) ?? null : null;
 
   return (
     <div className={expanded ? "flex h-full min-h-0 w-full flex-col" : undefined}>
-      <div className={`mb-5 shrink-0 flex-wrap items-end justify-between gap-3 ${expanded ? "mx-auto flex w-full max-w-5xl" : "flex"}`}>
-      </div>
-
       {participants.length === 0 ? (
-        <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-stone-200 bg-stone-50/50">
+        <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-stone-200 bg-stone-50/50">
           <div className="text-center">
             <p className="font-serif text-lg text-stone-700">Your lineup is taking shape.</p>
             <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-stone-400">When the bride or a bridesmaid confirms a VTO look, it appears here automatically. No manual refresh needed.</p>
           </div>
         </div>
       ) : (
-        <div className={`relative w-full overflow-hidden rounded-2xl bg-stone-300 shadow-[0_1px_2px_rgba(28,25,23,0.06),0_10px_28px_-8px_rgba(28,25,23,0.22)] ring-1 ring-inset ring-white/50 ${expanded ? "lineup-expanded-scene" : "aspect-[16/9] sm:aspect-[21/9]"}`}>
-          <div className="lineup-pan-surface absolute inset-0">
+        <div className={`relative w-full overflow-hidden rounded-xl bg-stone-300 shadow-[0_8px_24px_-14px_rgba(28,25,23,0.28)] ring-1 ring-inset ring-white/40 ${expanded ? "lineup-expanded-scene" : "aspect-[16/9] sm:aspect-[21/9]"}`}>
+          <div
+            className="lineup-pan-surface absolute inset-0"
+            style={{ overflowX: participants.length > 6 ? "auto" : "hidden" }}
+          >
             <div
               className="relative h-full bg-gradient-to-b from-stone-300 via-stone-200 to-stone-300"
               style={{ minWidth: participants.length > 6 ? `${participants.length * 16}%` : "100%" }}
@@ -204,8 +250,10 @@ export function LineupRow({
 
           {participants.map((p, index) => {
             const left = slotPosition(index, participants.length);
-const isBack = p.role !== "bride" && index % 2 === 1;
-const heightPct = baseHeightPct;
+            const isBack = p.role !== "bride" && index % 2 === 1;
+            const bounds = visibleBounds[p.id] ?? DEFAULT_VISIBLE_BOUNDS;
+            // Compose Studio fits every visible person to 82% of its canvas height.
+            const visibleHeightPct = 82;
             return (
               <div
                 key={p.id}
@@ -218,21 +266,40 @@ const heightPct = baseHeightPct;
                 style={{
                   left: positions[p.id] ? `${positions[p.id].x * 100}%` : `${left}%`,
                   bottom: positions[p.id] ? `${positions[p.id].y * 100}%` : isBack ? "6%" : "4%",
-                  height: `${positions[p.id] ? heightPct * (positions[p.id].scale || 1) : heightPct}%`,
+                  height: `${visibleHeightPct}%`,
                   zIndex: positions[p.id]?.z_index ?? (p.role === "bride" ? 10 : isBack ? 3 : 6),
                   opacity: positions[p.id]?.hidden ? 0 : 1,
                 }}
               >
-                <div className="relative h-full">
+                <div
+                  className="relative h-full"
+                  style={{ aspectRatio: bounds.imageWidthToVisibleHeightRatio }}
+                >
                   {/* Contact shadow — the detail that sells "standing in the scene" over "pasted on". */}
                   <div className="absolute bottom-0 left-1/2 h-[6%] w-[70%] -translate-x-1/2 rounded-[50%] bg-black/25 blur-sm" />
                   {/* eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage URL, domain varies per project */}
                   <img
                     src={p.cutout_url!}
                     alt=""
+                    crossOrigin="anonymous"
                     draggable={false}
-                    className="relative h-full w-auto select-none object-contain object-bottom drop-shadow-[0_10px_14px_rgba(28,25,23,0.28)]"
-                    style={isBack ? { filter: "brightness(0.94) saturate(0.94)" } : undefined}
+                    onLoad={(event) => {
+                      const measured = measureVisibleImageBounds(event.currentTarget);
+                      setVisibleBounds((current) => {
+                        const previous = current[p.id];
+                        if (previous
+                          && previous.imageToVisibleRatio === measured.imageToVisibleRatio
+                          && previous.imageWidthToVisibleHeightRatio === measured.imageWidthToVisibleHeightRatio
+                          && previous.bottomPaddingToVisibleRatio === measured.bottomPaddingToVisibleRatio) return current;
+                        return { ...current, [p.id]: measured };
+                      });
+                    }}
+                    className="absolute left-1/2 w-auto max-w-none -translate-x-1/2 select-none object-contain object-bottom drop-shadow-[0_10px_14px_rgba(28,25,23,0.28)]"
+                    style={{
+                      height: `${bounds.imageToVisibleRatio * 100}%`,
+                      bottom: `${-bounds.bottomPaddingToVisibleRatio * 100}%`,
+                      ...(isBack ? { filter: "brightness(0.94) saturate(0.94)" } : {}),
+                    }}
                   />
                 </div>
               </div>

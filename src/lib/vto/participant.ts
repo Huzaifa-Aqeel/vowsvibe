@@ -18,7 +18,6 @@ type ParticipantDbRow = {
   updated_at: string;
   lineup_x: number | null;
   lineup_y: number | null;
-  lineup_scale: number;
   lineup_z_index: number;
   lineup_hidden: boolean;
   skin_tone_hex: string | null;
@@ -63,7 +62,6 @@ export function hydrateParticipant(row: ParticipantDbRow, attempts: VtoAttemptRo
     updated_at: row.updated_at,
     lineup_x: row.lineup_x ?? null,
     lineup_y: row.lineup_y ?? null,
-    lineup_scale: Number(row.lineup_scale ?? 1),
     lineup_z_index: Number(row.lineup_z_index ?? 0),
     lineup_hidden: Boolean(row.lineup_hidden ?? false),
     skin_tone_hex: row.skin_tone_hex ?? null,
@@ -96,7 +94,6 @@ export function publicParticipant(row: ParticipantRow) {
     updated_at: row.updated_at,
     lineup_x: row.lineup_x ?? null,
     lineup_y: row.lineup_y ?? null,
-    lineup_scale: Number(row.lineup_scale ?? 1),
     lineup_z_index: Number(row.lineup_z_index ?? 0),
     lineup_hidden: Boolean(row.lineup_hidden ?? false),
   };

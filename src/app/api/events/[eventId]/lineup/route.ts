@@ -11,18 +11,18 @@ function validateItem(item: Record<string, unknown>) {
     typeof item.participant_id === "string" &&
     isFiniteNumber(item.x) && item.x >= 0 && item.x <= 1 &&
     isFiniteNumber(item.y) && item.y >= 0 && item.y <= 1 &&
-    isFiniteNumber(item.scale) && item.scale >= 0.5 && item.scale <= 1.5 &&
     Number.isInteger(item.z_index) &&
     typeof item.hidden === "boolean"
   );
 }
 
-export async function GET(_req: Request, { params }: { params: { eventId: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
   const admin = createServiceRoleClient();
   const { data: rows, error } = await admin
     .from("participants")
     .select("id")
-    .eq("event_id", params.eventId)
+    .eq("event_id", eventId)
     .eq("status", "confirmed")
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -71,7 +71,6 @@ export async function GET(_req: Request, { params }: { params: { eventId: string
       participant_id: participant.id,
       x: participant.lineup_x ?? 0.5,
       y: participant.lineup_y ?? 0.07,
-      scale: participant.lineup_scale ?? 1,
       z_index: participant.lineup_z_index ?? 0,
       hidden: participant.lineup_hidden ?? false,
     }]),
@@ -80,8 +79,9 @@ export async function GET(_req: Request, { params }: { params: { eventId: string
   return NextResponse.json({ participants, positions });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { eventId: string } }) {
-  const supabase = createClient();
+export async function POST(req: NextRequest, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, { params }: { params: { eventId: st
   const { data: event } = await admin
     .from("events")
     .select("id")
-    .eq("id", params.eventId)
+    .eq("id", eventId)
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest, { params }: { params: { eventId: st
   const { data: confirmed } = await admin
     .from("participants")
     .select("id")
-    .eq("event_id", params.eventId)
+    .eq("event_id", eventId)
     .eq("status", "confirmed");
   const allowedIds = new Set((confirmed ?? []).map((row) => row.id));
   const items = (body.items as Array<Record<string, unknown>>).filter((item) => allowedIds.has(item.participant_id as string));
@@ -118,12 +118,11 @@ export async function POST(req: NextRequest, { params }: { params: { eventId: st
         .update({
           lineup_x: item.x,
           lineup_y: item.y,
-          lineup_scale: item.scale,
           lineup_z_index: item.z_index,
           lineup_hidden: item.hidden,
         })
         .eq("id", item.participant_id as string)
-        .eq("event_id", params.eventId),
+        .eq("event_id", eventId),
     ),
   );
   const failed = results.find((result) => result.error);

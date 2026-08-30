@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { Camera, RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Undertone } from "@/lib/color/undertone";
+import { prepareImageUpload } from "@/lib/images/prepare-upload";
 
 export interface SkinToneResult {
   hex: string;
@@ -52,8 +53,9 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
       setPreviewUrl(localUrl);
 
       try {
+        const preparedFile = await prepareImageUpload(file, 1600);
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", preparedFile);
         if (token) formData.append("token", token);
         const res = await fetch(`/api/participants/${participantId}/skin-tone`, {
           method: "POST",

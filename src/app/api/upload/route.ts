@@ -4,8 +4,9 @@ import { isStorageFolder, uploadToStorage } from "@/lib/storage/upload";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-// Enforce 50MB limit matching your Supabase Bucket configuration
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB in Bytes
+// Vercel Functions reject request bodies above 4.5 MB before this handler runs.
+// Clients resize camera images to this safe ceiling before building multipart data.
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
 
 /**
  * Accepts a multipart/form-data upload (bridesmaid photo, custom dress, catalog dress)
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: "Image must be under 50MB" }, { status: 400 });
+      return NextResponse.json({ error: "Image must be under 4MB" }, { status: 400 });
     }
 
     // 2. Convert File to Buffer for Server Upload

@@ -683,24 +683,29 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
       {/* ── STEP 6: CONFIRMED ── */}
       {step === "confirmed" && (
-        <section className="mx-auto flex h-full min-h-0 max-w-5xl flex-col py-0">
-          <div className="mb-4 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blush-100 text-blush-700">
-              <Check size={22} strokeWidth={2.5} />
+        <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col">
+          <div className="lineup-bride-full-width mb-2 flex shrink-0 flex-col items-center border-b border-blush-100 bg-[#fffaf6]/70 px-2 py-2 text-center sm:mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-3 sm:text-left">
+            <div className="flex flex-col items-center sm:flex-row sm:gap-3">
+              <div className="mb-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blush-100 text-blush-700 sm:mb-0">
+                <Check size={19} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h2 className="font-serif text-2xl text-stone-800">You&apos;re in the lineup!</h2>
+                <p className="mt-1 max-w-lg text-sm text-stone-500">
+                  Your look has joined the group photo below — it&apos;ll keep filling in as the rest of the party confirms theirs.
+                </p>
+              </div>
             </div>
-            <h2 className="font-serif text-2xl text-stone-800">You&apos;re in the lineup!</h2>
-            <p className="mx-auto mt-1.5 max-w-sm text-sm text-stone-500">
-              Your look has joined the group photo below — it&apos;ll keep filling in as the rest of the party confirms theirs.
-            </p>
             <Button
               variant="outline"
-              className="mt-4 border-stone-200 text-xs"
+              size="sm"
+              className="mt-2 shrink-0 border-stone-200 bg-transparent text-xs text-stone-600 hover:bg-blush-50 sm:mt-0"
               onClick={() => setStep("studio")}
             >
               <RotateCcw size={14} /> Change your look
             </Button>
           </div>
-          <div className="lineup-full-bleed relative flex min-h-0 flex-1 flex-col rounded-3xl border border-blush-100 bg-white p-3 shadow-sm sm:p-4">
+          <div className="lineup-bride-full-width relative flex min-h-0 flex-1 flex-col">
             <PublicLineupBoard eventId={event.id} eventTitle={event.title} currentParticipantId={session?.participantId ?? null} currentParticipantToken={session?.token ?? null} />
           </div>
         </section>

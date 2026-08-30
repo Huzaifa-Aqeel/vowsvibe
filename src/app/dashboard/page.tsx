@@ -8,7 +8,7 @@ import { DeleteEventButton } from "@/components/DeleteEventButton";
 import type { EventRow } from "@/lib/types";
 
 export default async function DashboardPage() {
-  const supabase = createClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

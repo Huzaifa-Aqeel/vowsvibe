@@ -6,7 +6,9 @@ import {
   classifyPaletteRelationship,
   closestSameFamilySwatch,
   colorFamilyFromHex,
+  colorFamilyFromName,
   exactPaletteMatch,
+  FAMILY_MATCH_MAX_DELTA_E,
   familyForSwatch,
   matchesPaletteMode,
   paletteRelationship,
@@ -41,12 +43,72 @@ test("a non-exact dress chooses only the lowest-CIEDE2000 same-family swatch", (
   assert.equal(matchesPaletteMode("Muted Green", "#829C79", bridalPalette, bridalPalette[2], "family"), false);
 });
 
-test("a distant same-family swatch remains other", () => {
+test("the bridal Family Match heuristic includes close shades through Delta E 16", () => {
+  const palette = [swatch("sage", "Sage", "#9CAF88")];
+  assert.equal(FAMILY_MATCH_MAX_DELTA_E, 16);
+  // ΔE00 ≈ 13.64: excluded by the old threshold of 12, but useful for bridal coordination.
+  assert.equal(closestSameFamilySwatch("#71865F", palette, "green")?.id, "sage");
+});
+
+test("Other includes a same-family shade that is too far away in Delta E 00", () => {
   const palette = [swatch("emerald", "Emerald", "#046307")];
   assert.equal(colorFamilyFromHex("#A3B18A"), "green");
   assert.equal(closestSameFamilySwatch("#A3B18A", palette, "green"), null);
   assert.equal(classifyPaletteRelationship("Soft Sage", "#A3B18A", palette), "other");
   assert.equal(matchesPaletteMode("Soft Sage", "#A3B18A", palette, palette[0], "other"), true);
+});
+
+test("Other also includes a dress from a completely different family", () => {
+  const palette = [swatch("sage", "Sage", "#9CAF88")];
+  assert.equal(classifyPaletteRelationship("Terracotta", "#C15C3D", palette), "other");
+  assert.equal(classifyBridalPaletteBadge("Terracotta", "#C15C3D", palette), "custom");
+});
+
+test("wedding color families keep greens, warm hues, and key bridal shades distinct", () => {
+  const examples: Array<[string, string, ReturnType<typeof colorFamilyFromHex>]> = [
+    ["sage", "#9CAF88", "green"],
+    ["eucalyptus", "#5F8575", "green"],
+    ["forest green", "#228B22", "green"],
+    ["mustard", "#C49A00", "yellow"],
+    ["gold", "#D4AF37", "yellow"],
+    ["terracotta", "#C15C3D", "orange"],
+    ["orange", "#D97706", "orange"],
+    ["dusty rose", "#D24B64", "pink"],
+    ["burgundy", "#6B0F24", "red"],
+    ["lavender", "#E6E6FA", "purple"],
+    ["navy", "#111E38", "blue"],
+    ["champagne", "#F7E7CE", "neutral"],
+    ["ivory", "#FFFFF0", "neutral"],
+    ["taupe", "#8B8589", "neutral"],
+    ["charcoal", "#36454F", "dark"],
+  ];
+
+  examples.forEach(([label, hex, expected]) => {
+    assert.equal(colorFamilyFromHex(hex), expected, label);
+  });
+});
+
+test("explicit wedding color names resolve boundary hexes into the intended family", () => {
+  const greenPalette = [
+    swatch("emerald", "Emerald", "#046307", "green"),
+    swatch("olive", "Olive", "#556B2F", "green"),
+    swatch("eucalyptus", "Eucalyptus", "#5F8575", "green"),
+  ];
+
+  // This muted sage hex sits on the yellow/green Lab boundary. Its explicit label keeps
+  // it in green, while ΔE00 > 16 correctly leaves it in Other → Related shade.
+  assert.equal(colorFamilyFromHex("#BCB88A"), "yellow");
+  assert.equal(colorFamilyFromName("sage green"), "green");
+  assert.equal(classifyPaletteRelationship("sage green", "#BCB88A", greenPalette), "other");
+  assert.equal(classifyBridalPaletteBadge("sage green", "#BCB88A", greenPalette), "same-family");
+
+  assert.equal(colorFamilyFromName("mustard gold"), "yellow");
+  assert.equal(colorFamilyFromName("terracotta orange"), "orange");
+  assert.equal(colorFamilyFromName("dusty rose"), "pink");
+  assert.equal(colorFamilyFromName("burgundy"), "red");
+  assert.equal(colorFamilyFromName("lavender"), "purple");
+  assert.equal(colorFamilyFromName("navy"), "blue");
+  assert.equal(colorFamilyFromName("champagne"), "neutral");
 });
 
 test("invalid dress HEX and an empty palette safely return other", () => {

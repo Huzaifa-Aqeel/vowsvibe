@@ -6,15 +6,16 @@ import { LineupCanvas } from "@/components/LineupCanvas";
 import { getParticipantsWithAttempts } from "@/lib/vto/participant";
 import type { EventRow, LineupPosition, ParticipantRow } from "@/lib/types";
 
-export default async function BrideLineupPage({ params }: { params: { eventId: string } }) {
-  const supabase = createClient();
+export default async function BrideLineupPage({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: event } = await supabase
     .from("events")
     .select("*")
-    .eq("id", params.eventId)
+    .eq("id", eventId)
     .eq("owner_id", user.id)
     .maybeSingle<EventRow>();
   if (!event) notFound();
@@ -34,7 +35,6 @@ export default async function BrideLineupPage({ params }: { params: { eventId: s
       participant_id: participant.id,
       x: participant.lineup_x ?? 0.5,
       y: participant.lineup_y ?? 0.07,
-      scale: participant.lineup_scale ?? 1,
       z_index: participant.lineup_z_index ?? 0,
       hidden: participant.lineup_hidden ?? false,
     }]),

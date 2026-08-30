@@ -10,10 +10,9 @@ export const runtime = "nodejs";
 // strictly lighter than it was when it depended on cropFaceRegionForSkinTone.
 export const maxDuration = 20;
 
-// A selfie, not a full-res camera export — keep this well under the 50MB the dress/photo
-// uploader allows, since this file is never persisted and only needs to be "good enough"
-// for a face-color read.
-const MAX_SELFIE_BYTES = 15 * 1024 * 1024;
+// Stay below Vercel Functions' 4.5 MB multipart payload ceiling. The browser resizes
+// large camera captures before submission; the selfie remains ample for face-color analysis.
+const MAX_SELFIE_BYTES = 4 * 1024 * 1024;
 
 // Same dual-auth shape as /api/participants/[participantId]: a bridesmaid's session_token,
 // OR the signed-in owner (bride, authenticated via Supabase cookie session — she has no
@@ -27,7 +26,7 @@ async function authorize(participantId: string, token: string | null) {
     .maybeSingle();
   if (!participant) return { ok: false as const, status: 404, message: "Participant not found" };
   if (token && token === participant.session_token) return { ok: true as const, participant, service };
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     const { data: event } = await service.from("events").select("owner_id").eq("id", participant.event_id).maybeSingle();
@@ -45,7 +44,8 @@ async function authorize(participantId: string, token: string | null) {
  * Supabase Storage and never referenced by path anywhere in the DB — only the derived
  * skin_tone_hex / undertone / depth get persisted, on the participant row itself.
  */
-export async function POST(req: NextRequest, { params }: { params: { participantId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
   const formData = await req.formData().catch(() => null);
   const file = formData?.get("file");
   const tokenField = formData?.get("token");
@@ -58,10 +58,10 @@ export async function POST(req: NextRequest, { params }: { params: { participant
     return NextResponse.json({ error: "Only image files are supported" }, { status: 400 });
   }
   if (file.size > MAX_SELFIE_BYTES) {
-    return NextResponse.json({ error: "Selfie must be under 15MB" }, { status: 400 });
+    return NextResponse.json({ error: "Selfie must be under 4MB" }, { status: 400 });
   }
 
-  const auth = await authorize(params.participantId, token);
+  const auth = await authorize(participantId, token);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
   const { participant, service: admin } = auth;
 

@@ -65,7 +65,7 @@ function parseResolution(raw: string): DressColorResolution | null {
     const primaryHex = parsed.primaryHex.toUpperCase();
     const family = typeof parsed.family === "string" && parsed.family ? parsed.family.toLowerCase() : null;
     const fallbackFamily = colorFamilyFromHex(primaryHex);
-    const allowed = new Set(["red", "pink", "purple", "blue", "green", "neutral", "dark"]);
+    const allowed = new Set(["red", "pink", "orange", "yellow", "brown", "purple", "blue", "green", "neutral", "dark"]);
     const resolvedFamily = family && allowed.has(family) ? family as ColorFamily : fallbackFamily;
     if (!resolvedFamily) return null;
     return {
@@ -91,7 +91,7 @@ function buildPrompt(input: string): string {
     "- Do not infer anything from an image; you have text only.",
     "- Use a standard, widely recognized representative color value.",
     "- Return exactly one 6-digit sRGB hexadecimal value.",
-    "- Also classify the color into exactly one broad hue family: red, pink, purple, blue, green, neutral, or dark.",
+    "- Also classify the color into exactly one broad hue family: red, pink, orange, yellow, brown, purple, blue, green, neutral, or dark.",
     "- Treat family as a broad hue family, not a fashion brand/category.",
     "- Do not explain your answer.",
     "- Do not include markdown.",

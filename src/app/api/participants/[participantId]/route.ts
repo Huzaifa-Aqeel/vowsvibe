@@ -3,12 +3,15 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getParticipantWithAttempts } from "@/lib/vto/participant";
 import { extractCutout } from "@/lib/cutout/extract";
 
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
 async function authorize(participantId: string, token: string | null) {
   const service = createServiceRoleClient();
   const { data: participant } = await service.from("participants").select("*").eq("id", participantId).maybeSingle();
   if (!participant) return { ok: false as const, status: 404, message: "Participant not found" };
   if (token && token === participant.session_token) return { ok: true as const, participant, service };
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     const { data: event } = await service.from("events").select("owner_id").eq("id", participant.event_id).maybeSingle();
@@ -17,17 +20,19 @@ async function authorize(participantId: string, token: string | null) {
   return { ok: false as const, status: 403, message: "Not authorized" };
 }
 
-export async function GET(req: NextRequest, { params }: { params: { participantId: string } }) {
-  const auth = await authorize(params.participantId, req.nextUrl.searchParams.get("token"));
+export async function GET(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
+  const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
-  const result = await getParticipantWithAttempts(auth.service, params.participantId);
+  const result = await getParticipantWithAttempts(auth.service, participantId);
   return NextResponse.json({ participant: result.participant });
 }
 
 const ALLOWED_FIELDS = ["original_photo_path", "status"] as const;
 
-export async function PATCH(req: NextRequest, { params }: { params: { participantId: string } }) {
-  const auth = await authorize(params.participantId, req.nextUrl.searchParams.get("token"));
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
+  const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
   const body = await req.json();
   const patch: Record<string, unknown> = Object.fromEntries(
@@ -41,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { participan
       .from("vto_attempts")
       .select("id,participant_id,status,render_path,body_photo_path")
       .eq("id", attemptId)
-      .eq("participant_id", params.participantId)
+      .eq("participant_id", participantId)
       .maybeSingle();
     if (!attempt || !["ready", "confirmed"].includes(attempt.status) || !attempt.render_path) {
       return NextResponse.json({ error: "A completed VTO preview is required." }, { status: 409 });
@@ -59,7 +64,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { participan
       return NextResponse.json({ error: "Could not prepare this look for the group photo. Please try again." }, { status: 502 });
     }
 
-    await auth.service.from("vto_attempts").update({ status: "ready" }).eq("participant_id", params.participantId).eq("status", "confirmed");
+    await auth.service.from("vto_attempts").update({ status: "ready" }).eq("participant_id", participantId).eq("status", "confirmed");
     const { error: attemptError } = await auth.service.from("vto_attempts").update({ status: "confirmed", cutout_path: cutoutPath }).eq("id", attemptId);
     if (attemptError) return NextResponse.json({ error: attemptError.message }, { status: 500 });
     patch.confirmed_look_id = attemptId;
@@ -67,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { participan
     patch.status = "confirmed";
   }
 
-  const { data, error } = await auth.service.from("participants").update(patch).eq("id", params.participantId).select().single();
+  const { data, error } = await auth.service.from("participants").update(patch).eq("id", participantId).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const result = await getParticipantWithAttempts(auth.service, data.id);
   return NextResponse.json({ participant: result.participant });

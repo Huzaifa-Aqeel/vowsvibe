@@ -3,6 +3,13 @@
 
 create extension if not exists "pgcrypto";
 
+-- This schema is intended for Supabase, where the storage schema is available.
+-- Keep the render bucket public because the application stores public lineup cutouts
+-- and VTO renders here and reads them through Supabase public object URLs.
+insert into storage.buckets (id, name, public)
+values ('vto-renders', 'vto-renders', true)
+on conflict (id) do update set public = excluded.public;
+
 -- ============================================================================
 -- ENUMS
 -- ============================================================================
@@ -54,7 +61,8 @@ create table if not exists participants (
   role participant_role not null default 'bridesmaid',
   original_photo_path text,
   confirmed_look_id uuid,
-  -- Public participant lifecycle: only pending or confirmed. VTO attempt progress lives on vto_attempts.\n  status participant_status not null default 'pending',
+  -- Public participant lifecycle: only pending or confirmed. VTO attempt progress lives on vto_attempts.
+  status participant_status not null default 'pending',
   -- Derived once per uploaded photo from the YouCam skin-tone-analysis task. Nullable:
   -- absent until analysis completes, and the app must always work fine without it (the
   -- color palette just stays in its original order).
@@ -69,14 +77,28 @@ create table if not exists participants (
   -- 2D lineup metadata. Coordinates are normalized to 0..1 so layouts survive resize/device changes.
   lineup_x numeric(8,6) default 0.5,
   lineup_y numeric(8,6) default 0.07,
-  lineup_scale numeric(3,2) not null default 1.00 check (lineup_scale >= 0.5 and lineup_scale <= 1.5),
   lineup_z_index integer not null default 0,
   lineup_hidden boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- Additive columns for databases created before skin-tone analysis existed.
+-- Additive migrations for databases created before skin-tone analysis, confirmed
+-- looks, or the shared 2D lineup existed. CREATE TABLE IF NOT EXISTS does not add
+-- columns to an existing table, so keep these explicit and rerunnable.
+alter table participants add column if not exists original_photo_path text;
+alter table participants add column if not exists confirmed_look_id uuid;
+alter table participants add column if not exists status participant_status not null default 'pending';
+alter table participants add column if not exists skin_tone_hex text;
+alter table participants add column if not exists skin_undertone text check (skin_undertone in ('warm', 'cool', 'neutral'));
+alter table participants add column if not exists skin_depth text check (skin_depth in ('fair', 'light', 'medium', 'deep'));
+alter table participants add column if not exists hair_tone_hex text;
+alter table participants add column if not exists hair_color_name text;
+alter table participants add column if not exists lineup_x numeric(8,6) default 0.5;
+alter table participants add column if not exists lineup_y numeric(8,6) default 0.07;
+alter table participants add column if not exists lineup_z_index integer not null default 0;
+alter table participants add column if not exists lineup_hidden boolean not null default false;
+alter table participants add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists participants_event_id_idx on participants(event_id);
 create unique index if not exists participants_session_token_idx on participants(session_token);
@@ -111,7 +133,8 @@ create table if not exists participant_dresses (
 );
 
 -- Additive columns for databases created before garment color analysis existed.
-
+alter table participant_dresses add column if not exists primary_hex text;
+alter table participant_dresses add column if not exists color_name varchar(255);
 
 create index if not exists participant_dresses_participant_idx on participant_dresses(participant_id);
 
@@ -131,6 +154,12 @@ create table if not exists vto_attempts (
   updated_at timestamptz not null default now(),
   unique(id, participant_id)
 );
+
+-- Additive migrations for databases created before saved dress references and
+-- background-removed lineup cutouts were introduced.
+alter table vto_attempts add column if not exists participant_dress_id uuid references participant_dresses(id) on delete set null;
+alter table vto_attempts add column if not exists cutout_path text;
+alter table vto_attempts add column if not exists updated_at timestamptz not null default now();
 
 create unique index if not exists vto_attempts_id_participant_idx on vto_attempts(id, participant_id);
 create index if not exists vto_attempts_participant_idx on vto_attempts(participant_id, created_at desc);
@@ -169,21 +198,18 @@ create index if not exists suggestion_updates_event_idx on suggestion_updates(ev
 -- FOREIGN KEY CONSTRAINTS
 -- ============================================================================
 
--- Composite Foreign Key to guarantee confirmed_look_id belongs to the exact same participant.
--- Plain "add constraint" has no IF NOT EXISTS in Postgres, so this is wrapped to stay
--- idempotent like every other statement in this file.
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'participants_confirmed_look_same_participant_fkey'
-  ) then
-    alter table participants
-      add constraint participants_confirmed_look_same_participant_fkey
-      foreign key (confirmed_look_id, id)
-      references vto_attempts(id, participant_id)
-      on delete set null;
-  end if;
-end $$;
+-- Composite foreign key guarantees that confirmed_look_id belongs to the same
+-- participant. Recreate it on every run so installations that used the older broad
+-- SET NULL action are repaired. Only confirmed_look_id may be nulled; participants.id
+-- is the non-null primary key and must never be part of the SET NULL action.
+alter table participants
+  drop constraint if exists participants_confirmed_look_same_participant_fkey;
+
+alter table participants
+  add constraint participants_confirmed_look_same_participant_fkey
+  foreign key (confirmed_look_id, id)
+  references vto_attempts(id, participant_id)
+  on delete set null (confirmed_look_id);
 
 
 -- ============================================================================
@@ -205,7 +231,6 @@ begin
     or old.confirmed_look_id is distinct from new.confirmed_look_id
     or old.lineup_x is distinct from new.lineup_x
     or old.lineup_y is distinct from new.lineup_y
-    or old.lineup_scale is distinct from new.lineup_scale
     or old.lineup_z_index is distinct from new.lineup_z_index
     or old.lineup_hidden is distinct from new.lineup_hidden
   ) then
@@ -218,8 +243,12 @@ $$ language plpgsql security definer set search_path = public;
 
 drop trigger if exists trg_participants_lineup_update on participants;
 create trigger trg_participants_lineup_update
-  after update of status, confirmed_look_id, lineup_x, lineup_y, lineup_scale, lineup_z_index, lineup_hidden on participants
+  after update of status, confirmed_look_id, lineup_x, lineup_y, lineup_z_index, lineup_hidden on participants
   for each row execute function publish_lineup_update();
+
+-- Manual lineup scaling was removed. Drop its persisted value only after replacing
+-- the trigger above, since older installations may still have an UPDATE OF dependency.
+alter table participants drop column if exists lineup_scale;
 
 
 create or replace function validate_participant_suggestion() returns trigger as $$
@@ -245,7 +274,7 @@ begin
     raise exception 'Only confirmed participants can exchange suggestions';
   end if;
   if target_look is null or new.target_look_id <> target_look then
-    raise exception 'Suggestion must target the participant's current confirmed look';
+    raise exception 'Suggestion must target the participant''s current confirmed look';
   end if;
   if sender_look is null then
     raise exception 'Sender must have a confirmed look';

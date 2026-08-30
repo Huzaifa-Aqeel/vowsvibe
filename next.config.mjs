@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Next 16's CLI type-check worker can produce empty captured output in some
+  // Linux build environments. Use the stable compiler API; `tsc --noEmit` is
+  // also run separately in CI/local verification.
+  experimental: { useTypeScriptCli: false },
+
   // Lets the dev server serve /_next/* assets when the app is opened through an ngrok
   // tunnel instead of localhost. This only silences the dev-time cross-origin warning —
   // it does NOT fix Supabase auth cookies not carrying over between origins (cookies are
@@ -13,9 +18,7 @@ const nextConfig = {
   // Marking both packages external tells Next.js to skip bundling them and instead resolve
   // them with plain Node `require` at runtime, same as any other native addon (sharp,
   // sqlite3, etc. — see Next's own docs, which list onnxruntime-node as a known example).
-  experimental: {
-    serverComponentsExternalPackages: ["onnxruntime-node", "@imgly/background-removal-node"],
-  },
+  serverExternalPackages: ["onnxruntime-node", "@imgly/background-removal-node"],
 };
 
 export default nextConfig;

@@ -7,8 +7,8 @@ import { cookies } from "next/headers";
  * Use this in Server Components, layouts, and any route handler that needs to know
  * "who is the current bride?"
  */
-export function createClient() {
-  const cookieStore = cookies();
+export async function createClient() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +23,7 @@ export function createClient() {
             cookieStore.set({ name, value, ...options });
           } catch {
             // Called from a Server Component with no request context — safe to ignore,
-            // middleware.ts handles session refresh on the way in.
+            // proxy.ts handles session refresh on the way in.
           }
         },
         remove(name: string, options: CookieOptions) {

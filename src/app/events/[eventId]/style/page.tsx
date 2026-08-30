@@ -6,11 +6,12 @@ import { getParticipantWithAttempts } from "@/lib/vto/participant";
 import { publicStorageUrl } from "@/lib/storage/upload";
 import type { EventRow, BridalLookView, VtoAttemptRow } from "@/lib/types";
 
-export default async function BridalStylePage({ params }: { params: { eventId: string } }) {
-  const supabase = createClient();
+export default async function BridalStylePage({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: event } = await supabase.from("events").select("*").eq("id", params.eventId).eq("owner_id", user.id).maybeSingle<EventRow>();
+  const { data: event } = await supabase.from("events").select("*").eq("id", eventId).eq("owner_id", user.id).maybeSingle<EventRow>();
   if (!event) notFound();
   const admin = (await import("@/lib/supabase/server")).createServiceRoleClient();
   const { data: bride } = await admin.from("participants").select("id").eq("event_id", event.id).eq("role", "bride").maybeSingle();

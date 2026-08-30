@@ -11,7 +11,7 @@ async function authorize(participantId: string, token: string | null) {
   if (!participant) return { ok: false as const, status: 404, message: "Participant not found" };
   if (token && token === participant.session_token) return { ok: true as const, participant, service };
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     const { data: event } = await service.from("events").select("owner_id").eq("id", participant.event_id).maybeSingle();
@@ -52,8 +52,9 @@ async function readSuggestions(service: ReturnType<typeof createServiceRoleClien
   }));
 }
 
-export async function GET(req: NextRequest, { params }: { params: { participantId: string } }) {
-  const auth = await authorize(params.participantId, req.nextUrl.searchParams.get("token"));
+export async function GET(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
+  const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
@@ -64,8 +65,9 @@ export async function GET(req: NextRequest, { params }: { params: { participantI
   }
 }
 
-export async function POST(req: NextRequest, { params }: { params: { participantId: string } }) {
-  const auth = await authorize(params.participantId, req.nextUrl.searchParams.get("token"));
+export async function POST(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
+  const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   if (auth.participant.status !== "confirmed" || !auth.participant.confirmed_look_id) {

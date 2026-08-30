@@ -8,11 +8,12 @@ import { siteUrl } from "@/lib/utils";
 import { getParticipantsWithAttempts } from "@/lib/vto/participant";
 import type { EventRow, ParticipantRow } from "@/lib/types";
 
-export default async function EventDashboardPage({ params }: { params: { eventId: string } }) {
-  const supabase = createClient();
+export default async function EventDashboardPage({ params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: event } = await supabase.from("events").select("*").eq("id", params.eventId).eq("owner_id", user.id).maybeSingle<EventRow>();
+  const { data: event } = await supabase.from("events").select("*").eq("id", eventId).eq("owner_id", user.id).maybeSingle<EventRow>();
   if (!event) notFound();
   const admin = createServiceRoleClient();
   const { data: rows } = await admin.from("participants").select("id").eq("event_id", event.id).eq("status", "confirmed").order("created_at", { ascending: true });

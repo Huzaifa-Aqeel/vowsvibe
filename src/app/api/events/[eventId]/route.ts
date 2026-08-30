@@ -3,32 +3,35 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { removeManyFromStoragePaths, resolveStorageUrl, storagePathFromUrl } from "@/lib/storage/upload";
 import type { ExampleDress } from "@/lib/types";
 
-export async function GET(_req: NextRequest, { params }: { params: { eventId: string } }) {
-  const supabase = createClient(); const { data: { user } } = await supabase.auth.getUser();
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from("events").select("*").eq("id", params.eventId).eq("owner_id", user.id).maybeSingle();
+  const { data, error } = await admin.from("events").select("*").eq("id", eventId).eq("owner_id", user.id).maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Event not found" }, { status: 404 });
   const example_dresses = await Promise.all((data.example_dresses ?? []).map(async (dress: ExampleDress) => ({ ...dress, url: resolveStorageUrl(dress.storage_path ?? dress.url) ?? dress.url })));
   return NextResponse.json({ event: { ...data, example_dresses } });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { eventId: string } }) {
-  const supabase = createClient(); const { data: { user } } = await supabase.auth.getUser();
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const body = await req.json(); const allowed = ["title","event_date","dress_style","dress_length","fabric_type","color_palette","example_dresses"];
   const patch = Object.fromEntries(Object.entries(body).filter(([key]) => allowed.includes(key)));
-  const admin = createServiceRoleClient(); const { data, error } = await admin.from("events").update(patch).eq("id", params.eventId).eq("owner_id", user.id).select().single();
+  const admin = createServiceRoleClient(); const { data, error } = await admin.from("events").update(patch).eq("id", eventId).eq("owner_id", user.id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ event: data });
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { eventId: string } }) {
-  const supabase = createClient(); const { data: { user } } = await supabase.auth.getUser();
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ eventId: string }> }) {
+  const { eventId } = await params;
+  const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const admin = createServiceRoleClient();
-  const { data: event } = await admin.from("events").select("id,example_dresses").eq("id", params.eventId).eq("owner_id", user.id).maybeSingle();
+  const { data: event } = await admin.from("events").select("id,example_dresses").eq("id", eventId).eq("owner_id", user.id).maybeSingle();
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
   const paths: string[] = [];

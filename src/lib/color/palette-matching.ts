@@ -4,10 +4,45 @@ import type { SwatchColor } from "@/lib/types";
 
 export type PaletteRelationship = "palette" | "family" | "other";
 export type BridalPaletteBadge = "palette" | "family" | "same-family" | "custom";
-export type ColorFamily = "red" | "pink" | "purple" | "blue" | "green" | "neutral" | "dark";
+export type ColorFamily =
+  | "red"
+  | "pink"
+  | "orange"
+  | "yellow"
+  | "brown"
+  | "green"
+  | "blue"
+  | "purple"
+  | "neutral"
+  | "dark";
 
 function normalizePaletteName(value: string | null | undefined) {
   return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+/**
+ * Uses explicit wedding-color vocabulary as a broad-family signal. Named colors such as
+ * sage green and champagne can sit near a Lab hue boundary, so the user's resolved color
+ * label is more semantically accurate for family grouping; hex remains the fallback for
+ * arbitrary labels.
+ */
+export function colorFamilyFromName(value: string | null | undefined): ColorFamily | null {
+  const name = normalizePaletteName(value);
+  if (!name) return null;
+
+  const has = (terms: string[]) => terms.some((term) => new RegExp(`(?:^|[\\s-])${term}(?:$|[\\s-])`).test(name));
+
+  if (has(["sage", "eucalyptus", "emerald", "olive", "forest green", "mint", "green"])) return "green";
+  if (has(["terracotta", "orange", "copper"])) return "orange";
+  if (has(["mustard", "gold", "yellow"])) return "yellow";
+  if (has(["champagne", "ivory", "cream", "beige", "taupe", "sand", "neutral"])) return "neutral";
+  if (has(["burgundy", "merlot", "cabernet", "crimson", "red"])) return "red";
+  if (has(["dusty rose", "rose", "blush", "pink"])) return "pink";
+  if (has(["lavender", "lilac", "wisteria", "plum", "purple", "violet"])) return "purple";
+  if (has(["navy", "sapphire", "blue"])) return "blue";
+  if (has(["brown", "mocha", "chocolate", "cocoa"])) return "brown";
+  if (has(["black", "charcoal"])) return "dark";
+  return null;
 }
 
 export function normalizeColorHex(value: string | null | undefined): string | null {
@@ -16,9 +51,10 @@ export function normalizeColorHex(value: string | null | undefined): string | nu
 }
 
 /**
- * Coarse hue family used for bridal-party coordination. It intentionally mirrors
- * the human-facing palette families rather than trying to create a fine-grained
- * color classifier.
+ * Broad hue family used for bridal-party coordination. Warm wedding colors need
+ * dedicated yellow/orange/brown ranges so gold, mustard, and terracotta do not
+ * collapse into green or red. This remains a product taxonomy, not a scientific
+ * partition of CIE Lab.
  */
 export function colorFamilyFromHex(hex: string | null | undefined): ColorFamily | null {
   const normalized = normalizeColorHex(hex);
@@ -28,17 +64,25 @@ export function colorFamilyFromHex(hex: string | null | undefined): ColorFamily 
     const { l, a, b } = hexToLab(normalized);
     const chroma = Math.hypot(a, b);
 
-    if (l <= 18) return "dark";
-    if (chroma < 10 || (l >= 92 && chroma < 20)) return "neutral";
+    if (chroma < 10) return l < 35 ? "dark" : "neutral";
+    if (l <= 18 && chroma < 15) return "dark";
+    if (l >= 92 && chroma < 20) return "neutral";
 
     const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
 
-    if (hue < 18 || hue >= 345) return "red";
-    if (hue < 55) return "red";
-    if (hue < 180) return "green";
-    if (hue < 270) return "blue";
-    if (hue < 320) return "purple";
-    return "pink";
+    // Pale/light reds read as pink in bridal palettes; deeper equivalents remain red.
+    if (hue < 25 || hue >= 345) return l >= 42 ? "pink" : "red";
+    if (hue < 42) return "red";
+    if (hue < 78) return l < 50 && chroma < 45 ? "brown" : "orange";
+    if (hue < 115) return "yellow";
+    if (hue < 190) return "green";
+    if (hue < 285) return "blue";
+    // Light, low-chroma blue-violets are lavender; saturated/deep colors in this
+    // interval are typically navy/royal blue in the wedding palette vocabulary.
+    if (hue < 315) return l >= 70 && chroma < 25 ? "purple" : "blue";
+    // Separate vivid pink/magenta from darker plum and other purples.
+    if (hue >= 325 && l >= 50 && chroma > 50) return "pink";
+    return "purple";
   } catch {
     return null;
   }
@@ -46,6 +90,10 @@ export function colorFamilyFromHex(hex: string | null | undefined): ColorFamily 
 
 export function familyForSwatch(swatch: Pick<SwatchColor, "hex" | "family">): string | null {
   return colorFamilyFromHex(swatch.hex) ?? swatch.family ?? null;
+}
+
+function familyForDress(colorName: string | null | undefined, hex: string | null | undefined) {
+  return colorFamilyFromName(colorName) ?? colorFamilyFromHex(hex);
 }
 
 export function exactPaletteMatch(
@@ -74,9 +122,9 @@ function labFromHex(hex: string | null | undefined) {
   }
 }
 
-// Product threshold for visually useful bridal coordination. Calibrate it with
-// real bridal-color examples and user feedback rather than treating it as final.
-export const FAMILY_MATCH_MAX_DELTA_E = 12;
+// Product heuristic for useful bridal coordination, not a scientific standard.
+// Calibrate with real wedding colors and user feedback rather than colorimetry alone.
+export const FAMILY_MATCH_MAX_DELTA_E = 16;
 
 /**
  * Finds the single best palette swatch for a dress when both are in the same
@@ -134,7 +182,7 @@ export function paletteRelationship(
     return "other";
   }
 
-  const dressFamily = colorFamilyFromHex(hex);
+  const dressFamily = familyForDress(colorName, hex);
   if (!dressFamily) return "other";
 
   if (selectedSwatch) {
@@ -153,7 +201,7 @@ export function classifyPaletteRelationship(
   if (!palette.length) return "other";
   if (exactPaletteMatch(colorName, palette)) return "palette";
 
-  const dressFamily = colorFamilyFromHex(hex);
+  const dressFamily = familyForDress(colorName, hex);
   if (dressFamily && closestSameFamilySwatch(hex, palette, dressFamily)) {
     return "family";
   }
@@ -175,7 +223,7 @@ export function classifyBridalPaletteBadge(
   const relationship = classifyPaletteRelationship(colorName, hex, palette);
   if (relationship === "palette" || relationship === "family") return relationship;
 
-  const dressFamily = colorFamilyFromHex(hex);
+  const dressFamily = familyForDress(colorName, hex);
   if (!dressFamily) return null;
 
   return palette.some((swatch) => familyForSwatch(swatch) === dressFamily)
@@ -200,7 +248,7 @@ export function matchesPaletteMode(
   // Family Match bucket. Exact palette colors are intentionally exclusive.
   if (exact) return false;
 
-  const dressFamily = colorFamilyFromHex(hex);
+  const dressFamily = familyForDress(colorName, hex);
   if (!dressFamily) return mode === "other";
 
   const closest = closestSameFamilySwatch(hex, palette, dressFamily);
@@ -209,7 +257,8 @@ export function matchesPaletteMode(
     return closest?.id === swatch.id;
   }
 
-  // Other means the dress does not belong to any palette family. A non-exact
-  // family match is assigned to exactly one Family Match swatch instead.
+  // Other includes both a same-family shade beyond the ΔE00 product threshold
+  // and a dress from a different family. Any qualifying non-exact family match
+  // is assigned exclusively to its single closest palette swatch instead.
   return !closest;
 }

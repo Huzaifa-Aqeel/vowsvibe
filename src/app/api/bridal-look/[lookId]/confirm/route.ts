@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { extractCutout } from "@/lib/cutout/extract";
 
-export async function POST(_req: Request, { params }: { params: { lookId: string } }) {
-  const supabase = createClient();
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+export async function POST(_req: Request, { params }: { params: Promise<{ lookId: string }> }) {
+  const { lookId } = await params;
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const admin = createServiceRoleClient();
   const { data: attempt, error: attemptError } = await admin
     .from("vto_attempts")
     .select("*, participants!vto_attempts_participant_id_fkey!inner(id,event_id,role)")
-    .eq("id", params.lookId)
+    .eq("id", lookId)
     .eq("participants.role", "bride")
     .maybeSingle();
   if (attemptError) console.error("bridal-look confirm lookup failed", attemptError);

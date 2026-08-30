@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { DressAnalysisResult } from "@/lib/color/dress-analyzer";
 
@@ -24,6 +24,7 @@ export function DressAnalysisCard({
   actionLabel?: string;
 }) {
   const [analysisOpen, setAnalysisOpen] = useState(initialAnalysisOpen);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (initialAnalysisOpen) {
@@ -31,11 +32,27 @@ export function DressAnalysisCard({
     }
   }, [initialAnalysisOpen]);
 
+  useEffect(() => {
+    if (!analysisOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, [analysisOpen]);
+
   return (
     <div className="relative w-full pt-5">
-      <div className="absolute left-0 top-0 text-[10px] font-semibold tracking-wide text-stone-500">{analysis.score}% match</div>
+      <div className="absolute left-0 top-0 text-[10px] font-semibold tracking-wide text-stone-500">{analysis.score}/100 coordination</div>
       <div
-      className={`dress-analysis-card group relative w-full select-none outline-none ${analysisOpen ? "min-h-[30rem] sm:aspect-[3/4] sm:min-h-0" : "aspect-[3/4]"} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+      className={`dress-analysis-card group relative aspect-[3/4] w-full select-none outline-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       tabIndex={disabled ? -1 : 0}
       aria-label={`${alt}. ${analysis.badgeLabel}. ${analysisOpen ? "Analysis open" : "View analysis"}`}
       onKeyDown={(event) => {
@@ -64,9 +81,13 @@ export function DressAnalysisCard({
 
         <div
           className="dress-analysis-card__face dress-analysis-card__back rounded-2xl border border-rose-100/80 bg-white p-4 shadow-[0_18px_45px_-28px_rgba(28,25,23,0.45)]"
+          role={analysisOpen ? "dialog" : undefined}
+          aria-modal={analysisOpen ? true : undefined}
+          aria-label={analysisOpen ? `${alt} dress analysis` : undefined}
           onClick={(event) => event.stopPropagation()}
         >
           <button
+            ref={closeButtonRef}
             type="button"
             aria-label="Close dress analysis"
             title="Close analysis"

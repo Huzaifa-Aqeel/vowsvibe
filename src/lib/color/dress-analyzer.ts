@@ -184,7 +184,9 @@ function buildPositiveReasons(signals: AnalysisSignals): string[] {
 
   if (chromaScore >= 82) {
     reasons.push({
-      text: "The color intensity works well with your natural feature contrast.",
+      text: personalContrast == null
+        ? "The color intensity is balanced relative to your complexion."
+        : "The color intensity works well with your measured skin-to-hair contrast.",
       strength: chromaScore,
     });
   }
@@ -307,7 +309,7 @@ function buildContextSuggestions(
       } else if (closest.distance <= 20) {
         suggestions.push(`Close in color to ${closest.name}'s confirmed dress.`);
       } else if (closest.distance <= 35) {
-        suggestions.push(`Shares a similar color range with ${closest.name}'s confirmed dress.`);
+        suggestions.push(`Nearest to ${closest.name}'s confirmed dress, while still visibly different.`);
       } else {
         suggestions.push(`A distinct color from the closest confirmed bridesmaid look (${closest.name}).`);
       }

@@ -74,6 +74,21 @@ test("CIEDE2000 remains available for confirmed-dress similarity", () => {
   ]);
 });
 
+test("recommendations do not claim measured feature contrast when hair is unavailable", () => {
+  const result = analyzeDressWithSkinAndHair("#7F9B76", {
+    skinHex: baseProfile.skinHex,
+    undertone: baseProfile.undertone,
+  });
+
+  assert.doesNotMatch(result.reasons.join(" "), /feature contrast|skin-to-hair/i);
+});
+
+test("recommendations describe measured skin-to-hair contrast only when hair is available", () => {
+  const reasons = analyzeDressWithSkinAndHair("#004020", baseProfile).reasons;
+
+  assert.ok(reasons.some((reason) => /skin-to-hair contrast/i.test(reason)));
+});
+
 test("CIEDE2000 passes standard Sharma reference pairs", () => {
   const pairs = [
     [{ l: 50, a: 2.6772, b: -79.7751 }, { l: 50, a: 0, b: -82.7485 }, 2.0425],

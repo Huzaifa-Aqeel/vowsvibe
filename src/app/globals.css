@@ -259,6 +259,38 @@ body {
   transform: rotateY(180deg);
 }
 
+/* On phones the thumbnail stays in its grid slot while the analysis becomes a
+   full viewport dialog. The page behind it is scroll-locked by the component. */
+@media (max-width: 639px) {
+  .dress-analysis-card__inner.is-flipped {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    width: 100vw;
+    height: 100dvh;
+    padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+    transform: none;
+    background: rgba(28, 25, 23, 0.58);
+    backdrop-filter: blur(6px);
+  }
+
+  .dress-analysis-card__inner.is-flipped .dress-analysis-card__front {
+    display: none;
+  }
+
+  .dress-analysis-card__inner.is-flipped .dress-analysis-card__back {
+    position: relative;
+    inset: auto;
+    width: min(100%, 32rem);
+    height: min(42rem, calc(100dvh - 2rem));
+    margin: auto;
+    transform: none;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dress-analysis-card__inner {
     transition: none;

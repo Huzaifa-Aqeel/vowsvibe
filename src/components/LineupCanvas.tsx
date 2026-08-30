@@ -245,9 +245,9 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
 
 const filteredIds = useMemo(() => {
   if (paletteMatchMode === "other") {
-    // The top-level Other tab itself filters to all Other bridesmaids. The two
-    // optional subfilters narrow that set without needing an "All Other" button.
-    if (!activeSwatch) return otherIds;
+    // Selecting the top-level Other tab only changes the people list. Opacity
+    // changes begin when the bride selects one of its two explicit subfilters.
+    if (!activeSwatch) return null;
     if (activeSwatch === SAME_FAMILY_OTHER_FILTER_ID) return sameFamilyOtherIds;
     if (activeSwatch === CUSTOM_OTHER_FILTER_ID) return customOtherIds;
     return null;
@@ -537,10 +537,12 @@ const filteredIds = useMemo(() => {
     const to = new Map<string, number>();
 
     canvas.getObjects().forEach((object) => {
-      // Palette filters are exclusively for bridesmaids. The bride remains fully visible
-      // as the fixed composition reference regardless of the active filter.
-      const isBride = object.participantId === bride?.id;
-      const selected = isBride || (filteredIds ? filteredIds.has(object.participantId ?? "") : true);
+      // Once a concrete swatch/subfilter is selected, only its matching
+      // bridesmaids remain fully visible. This intentionally dims every other
+      // canvas participant, including the bride, so the shortlisted dresses are
+      // the sole visual focus. Merely selecting a top-level category does not
+      // activate opacity filtering because filteredIds remains null.
+      const selected = filteredIds ? filteredIds.has(object.participantId ?? "") : true;
       const target = positions[object.participantId ?? ""]?.hidden ? 0 : selected ? 1 : 0.3;
       from.set(object.participantId ?? "", object.opacity ?? 1);
       to.set(object.participantId ?? "", target);

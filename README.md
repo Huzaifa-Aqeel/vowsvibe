@@ -149,9 +149,9 @@ npm run dev
 2. Set the project Node.js version to **22.x**.
 3. Copy every required value from `.env.example` into Vercel Environment Variables for
    Production and Preview. Set `NEXT_PUBLIC_SITE_URL` to the deployed HTTPS origin.
-4. Set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1`. Confirming a look runs the native IMG.LY/ONNX
-   cutout model, whose function bundle exceeds Vercel's standard function size.
-5. Enable Fluid Compute. The two confirmation routes allow up to 300 seconds so a cold
+4. Keep Fluid Compute enabled. It is configured in `vercel.json` and is enabled by default
+   for new Vercel projects. Confirming a look runs the native IMG.LY/ONNX cutout model.
+5. The two confirmation routes allow up to 300 seconds so a cold
    cutout-model start can finish reliably.
 6. In Supabase Auth, add `https://YOUR_DOMAIN/auth/callback` to the allowed redirect URLs
    and set the Site URL to the deployed origin.

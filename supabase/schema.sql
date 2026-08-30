@@ -47,6 +47,11 @@ create table if not exists events (
 
 create index if not exists events_owner_id_idx on events(owner_id);
 
+-- The generated group image is replace-in-place; the flattened generation input is never stored.
+alter table events add column if not exists group_preview_path text;
+alter table events add column if not exists group_preview_updated_at timestamptz;
+alter table events add column if not exists group_preview_venue_path text;
+
 -- Remove the legacy dress-mode column from databases created before moodboard-only events.
 alter table events drop column if exists dress_mode;
 

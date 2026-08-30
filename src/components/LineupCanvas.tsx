@@ -7,8 +7,12 @@ import {
   ChevronLeft,
   Download,
   GripVertical,
+  Image as ImageIcon,
+  Loader2,
   PanelLeftOpen,
   Save,
+  Sparkles,
+  Upload,
   Trash2,
   X,
 } from "lucide-react";
@@ -16,6 +20,7 @@ import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
 import { classifyBridalPaletteBadge, classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
 import { browserFileActions } from "@/lib/platform/file-actions";
+import { prepareImageUpload } from "@/lib/images/prepare-upload";
 
 const FABRIC_CDN = "https://cdn.jsdelivr.net/npm/fabric@6.7.1/dist/index.min.js";
 const SAME_FAMILY_OTHER_FILTER_ID = "same-family-other";
@@ -181,6 +186,7 @@ function visiblePersonBounds(image: FabricImageLike) {
 export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<FabricCanvasLike | null>(null);
+  const lineupSnapshotRef = useRef<string | null>(null);
   const objectMapRef = useRef(new Map<string, FabricImageLike>());
   const baselineOffsetRef = useRef(new Map<string, number>());
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -198,6 +204,14 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [suggestionMode, setSuggestionMode] = useState(false);
   const suggestionModeRef = useRef(false);
   const [peopleOpen, setPeopleOpen] = useState(true);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [venueDataUrl, setVenueDataUrl] = useState<string | null>(event.group_preview_venue_path ?? null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(event.group_preview_path ?? null);
+  const [generatedPreview, setGeneratedPreview] = useState<string | null>(null);
+  const [previewGenerating, setPreviewGenerating] = useState(false);
+  const [previewSaving, setPreviewSaving] = useState(false);
+  const [previewSaved, setPreviewSaved] = useState(false);
+  const [previewPresets, setPreviewPresets] = useState<string[]>(["natural", "venue", "cohesive"]);
 
   const confirmedParticipants = useMemo(
     () => participants.filter((p) => p.status === "confirmed" && p.cutout_url),
@@ -612,6 +626,112 @@ const filteredIds = useMemo(() => {
     }
   }
 
+  async function readVenue(file: File | undefined) {
+    if (!file || !file.type.startsWith("image/")) return;
+    try { file = await prepareImageUpload(file, 1800, 3 * 1024 * 1024); }
+    catch (venueError) { setError(venueError instanceof Error ? venueError.message : "Could not prepare venue image"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") return;
+      setVenueDataUrl(reader.result);
+      void fetch(`/api/events/${event.id}/group-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "venue", image: reader.result }),
+      }).then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? "Could not save venue");
+        setVenueDataUrl(body.venueUrl);
+      }).catch((venueError) => setError(venueError instanceof Error ? venueError.message : "Could not save venue"));
+    };
+    reader.onerror = () => setError("Could not read that venue image.");
+    reader.readAsDataURL(file);
+  }
+
+  async function flattenPreviewInput(): Promise<string> {
+    const canvas = canvasRef.current;
+    if (!canvas || !venueDataUrl) throw new Error("Choose a venue image first.");
+    const lineup = lineupSnapshotRef.current ?? canvas.toDataURL({ format: "png", multiplier: 1 });
+    const load = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      if (src.startsWith("http")) image.crossOrigin = "anonymous";
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = src;
+    });
+    const [venue, people] = await Promise.all([load(venueDataUrl), load(lineup)]);
+    const output = document.createElement("canvas");
+    output.width = canvas.getWidth();
+    output.height = canvas.getHeight();
+    const context = output.getContext("2d");
+    if (!context) throw new Error("This browser could not compose the preview input.");
+    const scale = Math.max(output.width / venue.naturalWidth, output.height / venue.naturalHeight);
+    const width = venue.naturalWidth * scale;
+    const height = venue.naturalHeight * scale;
+    context.drawImage(venue, (output.width - width) / 2, (output.height - height) / 2, width, height);
+    context.drawImage(people, 0, 0, output.width, output.height);
+    return output.toDataURL("image/jpeg", 0.86);
+  }
+
+  async function generatePreview() {
+    setPreviewGenerating(true);
+    setPreviewSaved(false);
+    setError(null);
+    try {
+      const image = await flattenPreviewInput();
+      const response = await fetch(`/api/events/${event.id}/group-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate", image, presets: previewPresets }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Could not generate preview");
+      setPreviewUrl(body.image);
+      setGeneratedPreview(body.image);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "Could not generate preview");
+    } finally {
+      setPreviewGenerating(false);
+    }
+  }
+
+  function openGroupPreview() {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.discardActiveObject?.();
+      canvas.requestRenderAll();
+      lineupSnapshotRef.current = canvas.toDataURL({ format: "png", multiplier: 1 });
+    }
+    setPreviewMode(true);
+    setPeopleOpen(false);
+  }
+
+  async function savePreview() {
+    if (!generatedPreview) return;
+    setPreviewSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/events/${event.id}/group-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", image: generatedPreview }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Could not save preview");
+      setPreviewUrl(body.previewUrl);
+      setPreviewSaved(true);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "Could not save preview");
+    } finally {
+      setPreviewSaving(false);
+    }
+  }
+
+  async function downloadPreview() {
+    if (!previewUrl) return;
+    await browserFileActions.saveDataUrl(previewUrl, `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "bridal"}-group-preview.png`);
+  }
+
   async function saveLineup() {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -707,11 +827,47 @@ const filteredIds = useMemo(() => {
 
   return (
     <div ref={stageRef} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
-      {peopleOpen && (
+      {peopleOpen && !previewMode && (
         <button type="button" aria-label="Close People panel" onClick={() => setPeopleOpen(false)} className="lineup-people-scrim absolute inset-0 z-[70] hidden bg-stone-950/20 backdrop-blur-[2px]" />
       )}
 
-      <aside className={`lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95 transition-[margin,transform] duration-300 ${peopleOpen ? "ml-0 translate-x-0" : "-ml-[300px] -translate-x-full"}`} aria-hidden={!peopleOpen}>
+      {previewMode && (
+        <aside className="lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95">
+          <div className="border-b border-stone-200/70 px-5 py-4">
+            <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-rose-800">Compose Studio</p>
+            <h2 className="mt-0.5 font-serif text-xl text-stone-900">Group Preview</h2>
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Venue</p>
+              <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-stone-300 bg-stone-50 text-center">
+                {venueDataUrl ? <img src={venueDataUrl} alt="Selected venue" className="h-28 w-full object-cover" /> : <><Upload size={18} className="text-stone-500" /><span className="mt-2 text-xs font-semibold text-stone-700">Upload venue image</span></>}
+                <input type="file" accept="image/*" className="sr-only" onChange={(e) => void readVenue(e.target.files?.[0])} />
+              </label>
+              {venueDataUrl && <p className="mt-1.5 text-[10px] text-stone-400">Your event venue is ready. The flattened generation input is never stored.</p>}
+            </div>
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Finish</p>
+              <div className="mt-2 space-y-2">
+                {[{id:"natural",label:"Natural editorial light"},{id:"venue",label:"Preserve venue details"},{id:"cohesive",label:"Cohesive shadows & scale"},{id:"formal",label:"Formal portrait polish"}].map((preset) => (
+                  <label key={preset.id} className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs text-stone-700">
+                    <input type="checkbox" checked={previewPresets.includes(preset.id)} onChange={() => setPreviewPresets((current) => current.includes(preset.id) ? current.filter((id) => id !== preset.id) : [...current, preset.id])} className="accent-rose-800" />
+                    {preset.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-2 border-t border-stone-200/70 p-4">
+            <button type="button" disabled={previewGenerating || !venueDataUrl} onClick={() => void generatePreview()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">
+              {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}{previewGenerating ? "Generating…" : previewUrl ? "Regenerate Preview" : "Generate Preview"}
+            </button>
+            <button type="button" onClick={() => setPreviewMode(false)} className="min-h-10 w-full text-xs font-semibold text-stone-500">Back to lineup</button>
+          </div>
+        </aside>
+      )}
+
+      <aside className={`lineup-people-panel relative z-[80] ${previewMode ? "hidden" : "flex"} w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95 transition-[margin,transform] duration-300 ${peopleOpen ? "ml-0 translate-x-0" : "-ml-[300px] -translate-x-full"}`} aria-hidden={!peopleOpen || previewMode}>
         <div className="flex items-center justify-between border-b border-stone-200/70 px-5 py-4">
           <div>
             <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-rose-800">Bridal party</p>
@@ -874,7 +1030,15 @@ const filteredIds = useMemo(() => {
         <p className="border-t border-stone-200/70 px-5 py-3 text-[10px] leading-4 text-stone-400">Drag a person onto the studio, or select them to arrange layers.</p>
       </aside>
 
-      <div className="relative min-w-0 flex-1 overflow-hidden bg-[#f3ede5]" onDragOver={(event) => event.preventDefault()} onDrop={dropPerson}>
+      {previewMode && (
+        <div className="relative flex min-h-[520px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e9e1d8] p-5 pb-24 sm:p-8 sm:pb-24">
+          {previewUrl ? <img src={previewUrl} alt="Generated bridal party group preview" className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" /> : <div className="max-w-sm text-center text-stone-500"><ImageIcon className="mx-auto mb-3" size={30} /><p className="font-serif text-xl text-stone-800">Your group preview will appear here</p><p className="mt-2 text-xs leading-5">Choose a venue and finishing options, then generate a polished portrait.</p></div>}
+          {previewGenerating && <div className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-stone-700 shadow"><Loader2 size={14} className="animate-spin" /> Creating preview</div>}
+          {previewUrl && <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-end gap-2 border-t border-white/70 bg-[#fffdf9]/85 p-4 backdrop-blur-xl"><button type="button" onClick={() => void downloadPreview()} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 text-sm font-semibold"><Download size={15}/>Download Preview</button>{generatedPreview && <button type="button" disabled={previewSaving} onClick={() => void savePreview()} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-60"><Save size={15}/>{previewSaving ? "Saving…" : previewSaved ? "Saved" : "Save Preview"}</button>}</div>}
+        </div>
+      )}
+
+      <div className={`relative min-w-0 flex-1 overflow-hidden bg-[#f3ede5] ${previewMode ? "hidden" : "block"}`} onDragOver={(event) => event.preventDefault()} onDrop={dropPerson}>
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_24%,rgba(255,255,255,0.96),rgba(250,247,241,0.76)_48%,rgba(226,216,205,0.82)_100%)]" />
         <div className="pointer-events-none absolute inset-x-[8%] bottom-[12%] h-px bg-stone-500/15 shadow-[0_1px_14px_rgba(80,65,55,0.12)]" />
         {!peopleOpen && (
@@ -914,6 +1078,7 @@ const filteredIds = useMemo(() => {
 />
 <div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/70 bg-[#fffdf9]/80 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
+    <button type="button" onClick={() => { vibrate(); openGroupPreview(); }} className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"><Sparkles size={15} /> Group Preview</button>
     <button
       type="button"
       onClick={() => {

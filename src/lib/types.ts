@@ -15,6 +15,8 @@ export interface EventRow {
   id: string; owner_id: string; title: string; event_date: string | null; dress_style: string | null;
   dress_length: string | null; fabric_type: string | null; color_palette: SwatchColor[];
   example_dresses: ExampleDress[]; invite_code: string; created_at: string;
+  group_preview_path: string | null; group_preview_updated_at: string | null;
+  group_preview_venue_path?: string | null;
 }
 
 /** Database participant row plus URLs/attempt-derived fields used by the UI. */

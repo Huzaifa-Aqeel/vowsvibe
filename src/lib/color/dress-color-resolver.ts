@@ -33,12 +33,6 @@ const GROQ_BASE =
 const GROQ_MODEL =
   process.env.GROQ_COLOR_MODEL ?? "qwen/qwen3.6-27b";
 
-const OPENROUTER_BASE =
-  process.env.OPENROUTER_API_BASE ?? "https://openrouter.ai/api/v1";
-
-const OPENROUTER_MODEL =
-  process.env.OPENROUTER_COLOR_MODEL ?? "openrouter/free";
-
 function normalizeName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -211,61 +205,18 @@ export async function resolveDressColor(
 
   const prompt = buildPrompt(cleanedLabel);
 
-  // Primary provider: Groq.
   const groqKey = process.env.GROQ_API_KEY;
-
-  if (groqKey) {
-    try {
-      const result = await callTextModel(
-        `${GROQ_BASE}/chat/completions`,
-        groqKey,
-        GROQ_MODEL,
-        prompt,
-        {
-          "X-Title": "Vows & Vibe Dress Color Resolver",
-        },
-        {
-          isQwen: GROQ_MODEL === "qwen/qwen3.6-27b",
-        },
-      );
-
-      if (result) {
-        return result;
-      }
-
-      console.warn(
-        "Groq returned unusable dress color resolution; falling back to OpenRouter",
-      );
-    } catch (error) {
-      console.warn(
-        "Groq dress color resolution failed; falling back to OpenRouter",
-        error,
-      );
-    }
-  }
-
-  // Fallback provider: OpenRouter.
-  const openRouterKey = process.env.OPENROUTER_API_KEY;
-
-  if (!openRouterKey) {
-    throw new Error(
-      "No color-resolution provider is configured.",
-    );
-  }
+  if (!groqKey) throw new Error("Groq color resolution is not configured.");
 
   const result = await callTextModel(
-    `${OPENROUTER_BASE}/chat/completions`,
-    openRouterKey,
-    OPENROUTER_MODEL,
+    `${GROQ_BASE}/chat/completions`,
+    groqKey,
+    GROQ_MODEL,
     prompt,
     {
-      "HTTP-Referer":
-        process.env.OPENROUTER_HTTP_REFERER ??
-        "https://vows-and-vibe.app",
-      "X-Title":
-        process.env.OPENROUTER_X_TITLE ??
-        "Vows & Vibe",
+      "X-Title": "Vows & Vibe Dress Color Resolver",
     },
+    { isQwen: GROQ_MODEL.startsWith("qwen/") },
   );
 
   if (!result) {

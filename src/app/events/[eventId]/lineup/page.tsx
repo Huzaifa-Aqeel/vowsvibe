@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { LineupCanvas } from "@/components/LineupCanvas";
 import { getParticipantsWithAttempts } from "@/lib/vto/participant";
+import { resolveStorageUrl } from "@/lib/storage/upload";
 import type { EventRow, LineupPosition, ParticipantRow } from "@/lib/types";
 
 export default async function BrideLineupPage({ params }: { params: Promise<{ eventId: string }> }) {
@@ -81,7 +82,7 @@ export default async function BrideLineupPage({ params }: { params: Promise<{ ev
           </p>
         </div>
         <div className="lineup-bride-full-width">
-          <LineupCanvas event={event} participants={pageParticipants} initialPositions={initialPositions} />
+          <LineupCanvas event={{ ...event, group_preview_path: resolveStorageUrl(event.group_preview_path), group_preview_venue_path: resolveStorageUrl(event.group_preview_venue_path) }} participants={pageParticipants} initialPositions={initialPositions} />
         </div>
       </div>
     </main>

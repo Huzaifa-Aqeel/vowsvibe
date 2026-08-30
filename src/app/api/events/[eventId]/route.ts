@@ -31,10 +31,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const admin = createServiceRoleClient();
-  const { data: event } = await admin.from("events").select("id,example_dresses").eq("id", eventId).eq("owner_id", user.id).maybeSingle();
+  const { data: event } = await admin.from("events").select("id,example_dresses,group_preview_path,group_preview_venue_path").eq("id", eventId).eq("owner_id", user.id).maybeSingle();
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
   const paths: string[] = [];
+  if (event.group_preview_path) paths.push(event.group_preview_path);
+  if (event.group_preview_venue_path) paths.push(event.group_preview_venue_path);
   for (const dress of (event.example_dresses ?? []) as Array<{ storage_path?: string | null; url?: string | null }>) {
     const path = dress.storage_path ?? storagePathFromUrl(dress.url); if (path) paths.push(path);
   }

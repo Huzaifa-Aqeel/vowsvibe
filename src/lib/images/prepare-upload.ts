@@ -6,9 +6,9 @@ export const VERCEL_SAFE_IMAGE_BYTES = 4 * 1024 * 1024;
  * Smaller files are preserved byte-for-byte; oversized images become orientation-aware
  * JPEGs with a bounded longest edge and progressively reduced quality.
  */
-export async function prepareImageUpload(file: File, maxDimension = 2400): Promise<File> {
+export async function prepareImageUpload(file: File, maxDimension = 2400, maxBytes = VERCEL_SAFE_IMAGE_BYTES): Promise<File> {
   if (!file.type.startsWith("image/")) throw new Error("Only image files are supported");
-  if (file.size <= VERCEL_SAFE_IMAGE_BYTES) return file;
+  if (file.size <= maxBytes) return file;
 
   let bitmap: ImageBitmap;
   try {
@@ -32,7 +32,7 @@ export async function prepareImageUpload(file: File, maxDimension = 2400): Promi
 
     for (const quality of [0.86, 0.78, 0.7, 0.62, 0.54]) {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-      if (blob && blob.size <= VERCEL_SAFE_IMAGE_BYTES) {
+      if (blob && blob.size <= maxBytes) {
         const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
         return new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
       }

@@ -80,6 +80,24 @@ export async function uploadToStorage(fileDataUrlOrBuffer: string | Buffer, opti
   return { path: filePath, url: publicStorageUrl(filePath)! };
 }
 
+/** Upload a server-produced asset to an exact, replaceable path. */
+export async function uploadToStoragePath(
+  path: string,
+  data: string | Buffer,
+  contentType = "image/png",
+): Promise<StorageUploadResult> {
+  const match = typeof data === "string" ? data.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/) : null;
+  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(match?.[2] ?? data, "base64");
+  const resolvedType = match?.[1] ?? contentType;
+  const { error } = await supabaseAdmin.storage.from(BUCKET_NAME).upload(path, buffer, {
+    contentType: resolvedType,
+    upsert: true,
+    cacheControl: "0",
+  });
+  if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+  return { path, url: publicStorageUrl(path)! };
+}
+
 export async function removeFromStoragePath(path: string | null | undefined): Promise<void> {
   if (!path) return;
   const { error } = await supabaseAdmin.storage.from(BUCKET_NAME).remove([path]);

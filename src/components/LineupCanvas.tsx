@@ -494,6 +494,10 @@ const filteredIds = useMemo(() => {
           const canvasElement = canvasElementRef.current;
           if (!p || !canvasElement) return;
           const nextWidth = p.clientWidth;
+          // Preview mode uses `display: none` for the live workspace. Ignore the
+          // resulting zero-width observation so Fabric keeps its backing-store
+          // dimensions and can restore the lineup without rescaling from zero.
+          if (nextWidth < 1) return;
           const nextHeight = responsiveCanvasHeight(nextWidth, canvasElement);
           const oldWidth = canvas.getWidth();
           const oldHeight = canvas.getHeight();
@@ -641,7 +645,9 @@ const filteredIds = useMemo(() => {
       }).then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "Could not save venue");
-        setVenueDataUrl(body.venueUrl);
+        // Keep the local data URL for canvas composition. Replacing it with the
+        // public Storage URL can make the browser reject the later canvas load
+        // under CORS, preventing the generation POST from ever being sent.
       }).catch((venueError) => setError(venueError instanceof Error ? venueError.message : "Could not save venue"));
     };
     reader.onerror = () => setError("Could not read that venue image.");
@@ -652,17 +658,21 @@ const filteredIds = useMemo(() => {
     const canvas = canvasRef.current;
     if (!canvas || !venueDataUrl) throw new Error("Choose a venue image first.");
     const lineup = lineupSnapshotRef.current ?? canvas.toDataURL({ format: "png", multiplier: 1 });
-    const load = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const load = (src: string, label: string) => new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
       if (src.startsWith("http")) image.crossOrigin = "anonymous";
       image.onload = () => resolve(image);
-      image.onerror = reject;
+      image.onerror = () => reject(new Error(`Could not load the ${label} image for generation. Please upload it again.`));
       image.src = src;
     });
-    const [venue, people] = await Promise.all([load(venueDataUrl), load(lineup)]);
+    const [venue, people] = await Promise.all([load(venueDataUrl, "venue"), load(lineup, "lineup")]);
     const output = document.createElement("canvas");
-    output.width = canvas.getWidth();
-    output.height = canvas.getHeight();
+    // Preview mode hides the live Fabric workspace, so its measured dimensions can
+    // collapse to zero. The captured lineup image retains the canonical dimensions.
+    const maxDimension = 1600;
+    const outputScale = Math.min(1, maxDimension / Math.max(people.naturalWidth, people.naturalHeight));
+    output.width = Math.max(1, Math.round(people.naturalWidth * outputScale));
+    output.height = Math.max(1, Math.round(people.naturalHeight * outputScale));
     const context = output.getContext("2d");
     if (!context) throw new Error("This browser could not compose the preview input.");
     const scale = Math.max(output.width / venue.naturalWidth, output.height / venue.naturalHeight);
@@ -670,7 +680,11 @@ const filteredIds = useMemo(() => {
     const height = venue.naturalHeight * scale;
     context.drawImage(venue, (output.width - width) / 2, (output.height - height) / 2, width, height);
     context.drawImage(people, 0, 0, output.width, output.height);
-    return output.toDataURL("image/jpeg", 0.86);
+    for (const quality of [0.82, 0.7, 0.58]) {
+      const dataUrl = output.toDataURL("image/jpeg", quality);
+      if (dataUrl.startsWith("data:image/jpeg;base64,") && dataUrl.length <= 4_000_000) return dataUrl;
+    }
+    throw new Error("The composed preview is too large. Please choose a smaller venue image.");
   }
 
   async function generatePreview() {
@@ -683,13 +697,18 @@ const filteredIds = useMemo(() => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate", image, presets: previewPresets }),
+        signal: AbortSignal.timeout(180_000),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not generate preview");
       setPreviewUrl(body.image);
       setGeneratedPreview(body.image);
     } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : "Could not generate preview");
+      setError(
+        previewError instanceof DOMException && previewError.name === "TimeoutError"
+          ? "Preview generation took too long. Please try again."
+          : previewError instanceof Error ? previewError.message : "Could not generate preview",
+      );
     } finally {
       setPreviewGenerating(false);
     }
@@ -706,15 +725,31 @@ const filteredIds = useMemo(() => {
     setPeopleOpen(false);
   }
 
+  async function previewAsDataUrl(image: string): Promise<string> {
+    if (image.startsWith("data:image/")) return image;
+    const response = await fetch(image, { signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error(`Could not download the generated preview (${response.status}).`);
+    const blob = await response.blob();
+    if (!blob.type.startsWith("image/")) throw new Error("The generated preview was not an image.");
+    if (blob.size > 20 * 1024 * 1024) throw new Error("The generated preview is too large to save.");
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Could not read the generated preview."));
+      reader.onerror = () => reject(new Error("Could not read the generated preview."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   async function savePreview() {
     if (!generatedPreview) return;
     setPreviewSaving(true);
     setError(null);
     try {
+      const image = await previewAsDataUrl(generatedPreview);
       const response = await fetch(`/api/events/${event.id}/group-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", image: generatedPreview }),
+        body: JSON.stringify({ action: "save", image }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Could not save preview");
@@ -729,7 +764,13 @@ const filteredIds = useMemo(() => {
 
   async function downloadPreview() {
     if (!previewUrl) return;
-    await browserFileActions.saveDataUrl(previewUrl, `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "bridal"}-group-preview.png`);
+    setError(null);
+    try {
+      const image = await previewAsDataUrl(previewUrl);
+      await browserFileActions.saveDataUrl(image, `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "bridal"}-group-preview.png`);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "Could not download preview");
+    }
   }
 
   async function saveLineup() {

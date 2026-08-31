@@ -8,8 +8,8 @@ export const maxDuration = 300;
 const PRESETS: Record<string, string> = {
   natural: "Use natural editorial lighting, realistic skin and fabric texture, and restrained color grading.",
   venue: "Preserve the supplied venue architecture and atmosphere faithfully.",
-  cohesive: "Blend the people naturally into the scene with consistent perspective, scale, light, and contact shadows.",
-  formal: "Create a polished formal wedding-party portrait with elegant, relaxed posture.",
+  cohesive: "Blend only the existing people naturally into the scene with consistent perspective, scale, light, and contact shadows.",
+  formal: "Adjust only the existing people toward a polished formal portrait with elegant, relaxed posture.",
 };
 
 async function ownedEvent(eventId: string) {
@@ -30,12 +30,28 @@ function generatedImageUrl(payload: Record<string, unknown>): string | null {
   return typeof image === "string" ? image : null;
 }
 
-function isTrustedDashScopeImageUrl(url: string): boolean {
+function isTrustedDashScopeImageUrl(value: string): boolean {
   try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && parsed.hostname.endsWith("aliyuncs.com");
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "aliyuncs.com" || url.hostname.endsWith(".aliyuncs.com"));
   } catch {
     return false;
+  }
+}
+
+function networkErrorCode(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const cause = error.cause as { code?: unknown; errors?: Array<{ code?: unknown }> } | undefined;
+  if (typeof cause?.code === "string") return cause.code;
+  const nestedCode = cause?.errors?.find((item) => typeof item.code === "string")?.code;
+  return typeof nestedCode === "string" ? nestedCode : null;
+}
+
+function safeErrorMessage(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "Unknown network error";
   }
 }
 
@@ -65,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   }
 
   if (body.action === "save") {
-    if (!body.image || (!body.image.startsWith("data:image/") && !isTrustedDashScopeImageUrl(body.image))) {
+    if (!body.image?.startsWith("data:image/")) {
       return NextResponse.json({ error: "Invalid preview image" }, { status: 400 });
     }
     const path = `group-previews/${eventId}/current.png`;
@@ -81,34 +97,103 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   }
   const selected = (body.presets ?? []).filter((id) => id in PRESETS).slice(0, 4);
   const prompt = [
-    "Transform this flattened bridal-party composition into one photorealistic group portrait.",
-    "The supplied image fixes the venue, people, dresses, relative placement, and lineup order. Preserve every person's identity, facial features, dress color/design, body proportions, and position. Do not add or remove people or change the venue.",
-    "Remove cutout edges and make the composite look like a single professional photograph.",
+    "EDIT the supplied image into a natural, photorealistic wedding-party group photograph.",
+    "",
+    "PEOPLE:",
+    "Use only the people already visible in the source image.",
+    "Preserve every existing person exactly once.",
+    "Do not add, duplicate, remove, replace, merge, or invent anyone.",
+    "Do not add background guests, reflections containing people, partial people, or extra faces.",
+    "",
+    "IDENTITY & WARDROBE:",
+    "Preserve each person's recognizable face, skin tone, hairstyle, body proportions, and identity.",
+    "Preserve each person's exact dress color, neckline, silhouette, fabric appearance, design, and length.",
+    "Do not redesign or recolor any dress.",
+    "",
+    "POSING:",
+    "The original standing poses are only staging references and are NOT the desired final poses.",
+    "Actively re-pose the existing people into a believable wedding-group pose.",
+    "",
+    "Bring them naturally closer together.",
+    "Use subtle overlap between neighboring people.",
+    "Angle shoulders and bodies slightly toward the center or toward each other.",
+    "Use relaxed posture, gentle inward leaning, varied natural arm positions, realistic hand placement, and natural differences in stance.",
+    "The people should look socially connected and photographed together, not like separate front-facing cutouts.",
+    "",
+    "Preserve the existing left-to-right person order, but you may adjust spacing, position, body angle, and stance enough to create a convincing group composition.",
+    "",
+    "VENUE & REALISM:",
+    "Preserve the supplied venue/background.",
+    "Keep intentional empty space free of additional people.",
+    "Integrate the group naturally with consistent perspective, lighting, floor contact, contact shadows, depth, and realistic overlap.",
+    "Remove visible cutout edges.",
+    "",
+    "PRIORITIES:",
+    "1. Preserve exactly the existing people.",
+    "2. Preserve identity and wardrobe.",
+    "3. Visibly transform the static poses into natural group posing.",
+    "4. Preserve the venue.",
+    "5. Improve photographic realism.",
+    "",
+    "Preserving identity does not mean preserving the original body pose.",
+    "",
+    "AVOID:",
+    "extra people, duplicated people, missing people, merged bodies, extra faces, extra limbs, altered faces, changed dresses, changed dress colors, stiff lineup, identical poses, mannequin posture, excessive spacing, pasted cutouts, collage, floating feet, text, logo, watermark.",
+    "",
     ...selected.map((id) => PRESETS[id]),
-    "Return only the finished image.",
+    "",
+    "Return only the finished edited image.",
   ].join("\n");
   const apiKey = process.env.DASHSCOPE_API_KEY;
   const baseUrl = (process.env.DASHSCOPE_API_BASE ?? "").replace(/\/$/, "");
+  const model = process.env.DASHSCOPE_QWEN_IMAGE_MODEL ?? "qwen-image-3.0-pro";
   if (!apiKey || !baseUrl) return NextResponse.json({ error: "DashScope Qwen Image is not configured" }, { status: 503 });
-  const response = await fetch(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.DASHSCOPE_QWEN_IMAGE_MODEL ?? "qwen-image-3.0",
-      input: {
-        messages: [{ role: "user", content: [{ image: body.image }, { text: prompt }] }],
-      },
-      parameters: {
-        n: 1,
-        prompt_extend: true,
-        prompt_extend_mode: "direct",
-        enable_thinking: true,
-        negative_prompt: "extra people, missing people, duplicate people, altered faces, changed dresses, changed dress colors, distorted anatomy, disfigured hands, text, logo, watermark, low quality",
-        watermark: false,
-      },
-    }),
-  });
-  const raw = await response.text();
+  const requestStartedAt = Date.now();
+  let endpointHost = "invalid-endpoint";
+  try { endpointHost = new URL(baseUrl).host; } catch { /* Configuration error is reported by fetch below. */ }
+  console.info(
+    `[group-preview:${eventId}] Sending Qwen request model=${model} endpoint=${endpointHost} inputChars=${body.image.length} presets=${selected.join(",") || "none"}`,
+  );
+
+  let response: Response;
+  let raw: string;
+  try {
+    response = await fetch(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        input: { messages: [{ role: "user", content: [{ image: body.image }, { text: prompt }] }] },
+        parameters: {
+          n: 1,
+          // This prompt is intentionally detailed; automatic rewriting can weaken
+          // identity, wardrobe, person-count, and posing constraints.
+          prompt_extend: false,
+          negative_prompt: "extra people, duplicated people, missing people, merged bodies, extra faces, extra limbs, altered faces, changed dresses, changed dress colors, stiff lineup, identical poses, mannequin posture, excessive spacing, pasted cutouts, collage, floating feet, text, logo, watermark",
+          watermark: false,
+        },
+      }),
+      // Leave enough of the route's 300-second budget to download and return the image.
+      signal: AbortSignal.timeout(145_000),
+    });
+    console.info(
+      `[group-preview:${eventId}] Qwen responded status=${response.status} requestId=${response.headers.get("x-request-id") ?? "unavailable"} durationMs=${Date.now() - requestStartedAt}`,
+    );
+    // Body consumption can also reject when the fetch signal expires, so it must
+    // remain inside the same protected block as the initial request.
+    raw = await response.text();
+  } catch (error) {
+    const code = networkErrorCode(error);
+    // Do not pass undici's raw AggregateError/DOMException to Next's dev logger.
+    // Its `message` can be read-only, while the logger attempts to annotate it.
+    console.error(`DashScope Qwen Image network failure [${code ?? "unknown"}]: ${safeErrorMessage(error)}`);
+    const detail = code === "ETIMEDOUT"
+      ? "The connection to the Alibaba Cloud workspace timed out. Check that your server can reach the configured region."
+      : code === "EAI_AGAIN" || code === "ENOTFOUND"
+        ? "The Alibaba Cloud workspace hostname could not be resolved by the server."
+        : "The server could not connect to the Alibaba Cloud workspace.";
+    return NextResponse.json({ error: detail, code: code ?? "DASHSCOPE_NETWORK_ERROR" }, { status: 504 });
+  }
   if (!response.ok) {
     console.error("DashScope Qwen Image request failed", response.status, raw.slice(0, 1000));
     return NextResponse.json({ error: `Qwen generation failed (${response.status})` }, { status: 502 });
@@ -116,10 +201,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   let payload: Record<string, unknown>;
   try { payload = JSON.parse(raw) as Record<string, unknown>; } catch { return NextResponse.json({ error: "Qwen returned an invalid response" }, { status: 502 }); }
   const imageUrl = generatedImageUrl(payload);
-  if (!imageUrl) {
-    console.error("DashScope Qwen Image response had no image", raw.slice(0, 1000));
-    return NextResponse.json({ error: "Qwen did not return an image" }, { status: 502 });
+  if (!imageUrl || !isTrustedDashScopeImageUrl(imageUrl)) {
+    console.error("DashScope Qwen Image response had no trusted image URL", raw.slice(0, 1000));
+    return NextResponse.json({ error: "Qwen did not return a valid image" }, { status: 502 });
   }
-  if (!isTrustedDashScopeImageUrl(imageUrl)) return NextResponse.json({ error: "Qwen returned an untrusted image URL" }, { status: 502 });
+
+  console.info(
+    `[group-preview:${eventId}] Returning trusted Qwen image URL host=${new URL(imageUrl).host} totalDurationMs=${Date.now() - requestStartedAt}`,
+  );
+  // Qwen returns a temporary signed OSS URL. Return it directly because some
+  // deployment networks can reach the inference endpoint but cannot stream the
+  // separate OSS host. The browser retrieves it from the user's network instead.
   return NextResponse.json({ image: imageUrl });
 }

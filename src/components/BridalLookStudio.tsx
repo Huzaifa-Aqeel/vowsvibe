@@ -119,6 +119,7 @@ async function startLook(dressUrl: string) {
           photo_url: photoUrl,
           dress_url: dressUrl
         }),
+        signal: AbortSignal.timeout(35_000),
       });
 
       const json = await res.json();
@@ -135,12 +136,20 @@ async function startLook(dressUrl: string) {
       const myGen = ++pollGenRef.current;
       let pollAttempts = 0;
       const MAX_POLL_ATTEMPTS = 60; // ~2.5 min at 2500ms between checks
+      const pollLifetime = AbortSignal.timeout(180_000);
 
       const poll = async () => {
         if (pollGenRef.current !== myGen) return;
+        if (pollLifetime.aborted) {
+          setError("This preview is taking longer than expected. Please try again.");
+          setState("setup");
+          return;
+        }
         pollAttempts += 1;
         try {
-          const statusRes = await fetch(`/api/bridal-look/status/${taskId}?look_id=${lookId}`);
+          const statusRes = await fetch(`/api/bridal-look/status/${taskId}?look_id=${lookId}`, {
+            signal: AbortSignal.timeout(15_000),
+          });
           const status = await statusRes.json();
           if (pollGenRef.current !== myGen) return; // superseded while this fetch was in flight
 
@@ -179,7 +188,7 @@ async function startLook(dressUrl: string) {
             return;
           }
 
-          if (pollAttempts >= MAX_POLL_ATTEMPTS) {
+          if (pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
             setError("This preview is taking longer than expected. Please try again.");
             setState("setup");
             return;
@@ -188,7 +197,13 @@ async function startLook(dressUrl: string) {
           intervalRef.current = setTimeout(poll, 2500);
         } catch (pollErr) {
           console.error("Polling error:", pollErr);
-          if (pollGenRef.current === myGen) intervalRef.current = setTimeout(poll, 2500);
+          if (pollGenRef.current !== myGen) return;
+          if (pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
+            setError("This preview is taking longer than expected. Please try again.");
+            setState("setup");
+            return;
+          }
+          intervalRef.current = setTimeout(poll, 2500);
         }
       };
 
@@ -196,7 +211,9 @@ async function startLook(dressUrl: string) {
 
     } catch (err) {
       stopPolling();
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof DOMException && err.name === "TimeoutError"
+        ? "YouCam did not respond in time. Please try again."
+        : err instanceof Error ? err.message : "Something went wrong");
       setState("setup");
     }
   }

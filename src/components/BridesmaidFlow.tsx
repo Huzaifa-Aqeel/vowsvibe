@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, Check, Shirt, Camera, Users, ShieldCheck, RotateCcw, ArrowRight } from "lucide-react";
+import { Loader2, Sparkles, Check, Shirt, Camera, Users, ShieldCheck, RotateCcw, ArrowRight, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -21,12 +21,6 @@ import {
 import type { DressColorMeta } from "@/components/DressDropzone";
 
 type Step = "loading" | "name" | "studio" | "processing" | "preview" | "confirmed";
-
-interface ConfirmedBridesmaidColor {
-  id: string;
-  name: string;
-  hex: string;
-}
 
 interface Session {
   participantId: string;
@@ -59,8 +53,15 @@ function saveSession(eventId: string, session: Session) {
 // that render keeps the warning away without changing client behavior at all.
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
+function requestedView(): "studio" | "lineup" | null {
+  if (typeof window === "undefined") return null;
+  const view = new URL(window.location.href).searchParams.get("view");
+  return view === "studio" || view === "lineup" ? view : null;
+}
+
 function stepForStatus(status: string): Step {
-  return status === "confirmed" ? "confirmed" : "studio";
+  if (status !== "confirmed") return "studio";
+  return requestedView() === "studio" ? "studio" : "confirmed";
 }
 
 export function BridesmaidFlow({ event }: { event: EventRow }) {
@@ -69,6 +70,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // which caused a hydration mismatch and the Next.js error indicator on refresh. The
   // resume effect below decides between studio/confirmed/name after the client mounts.
   const [step, setStep] = useState<Step>("loading");
+  const [isConfirmed, setIsConfirmed] = useState(false);
   const [name, setName] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [dressUrl, setDressUrl] = useState<string | null>(null);
@@ -99,7 +101,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   const [dressBadges, setDressBadges] = useState<Record<string, DressAnalysisResult>>({});
   const [newlyAnalyzedDressUrl, setNewlyAnalyzedDressUrl] = useState<string | null>(null);
   const [customDresses, setCustomDresses] = useState<Array<{ url: string; primaryHex: string | null; colorName: string | null; family: string | null }>>([]);
-  const [confirmedBridesmaids, setConfirmedBridesmaids] = useState<ConfirmedBridesmaidColor[]>([]);
   const [busy, setBusy] = useState(false);
   // These refs are used only by the required YouCam VTO task polling.
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,6 +143,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
           setUndertone(participant.skin_undertone ?? null);
           setSkinToneHex(participant.skin_tone_hex ?? null);
           setHairToneHex(participant.hair_tone_hex ?? null);
+          setIsConfirmed(participant.status === "confirmed");
           fetch(`/api/participants/${saved.participantId}/dresses?token=${saved.token}`)
             .then((dressRes) => dressRes.json())
             .then(({ dresses }) => {
@@ -156,7 +158,12 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
               }));
             })
             .catch(() => undefined);
-          setStep(stepForStatus(participant.status));
+          if (participant.status === "processing") {
+            setError("Your previous try-on is still processing. Please start it again.");
+            setStep("studio");
+          } else {
+            setStep(stepForStatus(participant.status));
+          }
         })
         .catch(() => setStep("name"));
     } else {
@@ -168,27 +175,23 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     pollGenRef.current += 1;
     if (pollRef.current) clearTimeout(pollRef.current);
     return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/events/${event.id}/lineup`)
-      .then((response) => response.json())
-      .then((json) => {
-        if (cancelled || !Array.isArray(json.participants)) return;
-        setConfirmedBridesmaids(
-          json.participants
-            .filter((participant: { role?: string; id?: string; confirmed_dress_primary_hex?: string | null }) => participant.role === "bridesmaid" && participant.id !== session?.participantId)
-            .filter((participant: { confirmed_dress_primary_hex?: string | null }) => typeof participant.confirmed_dress_primary_hex === "string")
-            .map((participant: { id: string; name: string; confirmed_dress_primary_hex: string }) => ({ id: participant.id, name: participant.name, hex: participant.confirmed_dress_primary_hex })),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setConfirmedBridesmaids([]);
-      });
-    return () => { cancelled = true; };
-  }, [event.id, session?.participantId]);
+    const syncViewFromHistory = () => {
+      if (!isConfirmed) return;
+      setStep(requestedView() === "studio" ? "studio" : "confirmed");
+    };
+    window.addEventListener("popstate", syncViewFromHistory);
+    return () => window.removeEventListener("popstate", syncViewFromHistory);
+  }, [isConfirmed]);
+
+  function navigateTo(view: "studio" | "lineup", mode: "push" | "replace" = "push") {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", view);
+    window.history[mode === "replace" ? "replaceState" : "pushState"]({}, "", url);
+    setStep(view === "studio" ? "studio" : "confirmed");
+  }
 
   // Dress analysis is deliberately render-time math. The DB already has the participant
   // skin/hair hex values and Grok has already read the dress primaryHex, so refreshes do not
@@ -210,14 +213,13 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
         next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile, {
           dressColorName: d.colorName,
           bridePalette: event.color_palette ?? [],
-          confirmedBridesmaids,
         });
       } catch (err) {
         console.error("Dress compatibility scoring failed for", d.url, err);
       }
     }
     setDressBadges(next);
-  }, [photoUrl, skinToneHex, hairToneHex, undertone, event.example_dresses, event.color_palette, customDresses, confirmedBridesmaids]);
+  }, [photoUrl, skinToneHex, hairToneHex, undertone, event.example_dresses, event.color_palette, customDresses]);
 
   async function joinEvent(e: React.FormEvent) {
     e.preventDefault();
@@ -246,6 +248,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       setUndertone(participant.skin_undertone ?? null);
       setSkinToneHex(participant.skin_tone_hex ?? null);
       setHairToneHex(participant.hair_tone_hex ?? null);
+      setIsConfirmed(participant.status === "confirmed");
       fetch(`/api/participants/${participant.id}/dresses?token=${participant.session_token}`)
         .then((dressRes) => dressRes.json())
         .then(({ dresses }) => setCustomDresses((dresses ?? []).map((d: unknown) => {
@@ -356,7 +359,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile, {
         dressColorName: dressMeta?.colorName ?? null,
         bridePalette: event.color_palette ?? [],
-        confirmedBridesmaids,
       }),
     }));
   }
@@ -374,6 +376,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
           dress_primary_hex: dressMeta?.primaryHex ?? null,
           dress_color_name: dressMeta?.colorName ?? null,
         }),
+        signal: AbortSignal.timeout(35_000),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not start render");
@@ -385,13 +388,20 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       const myGen = ++pollGenRef.current;
       let pollAttempts = 0;
       const MAX_POLL_ATTEMPTS = 60;
+      const pollLifetime = AbortSignal.timeout(180_000);
 
       const poll = async () => {
         if (pollGenRef.current !== myGen) return;
+        if (pollLifetime.aborted) {
+          setError("This render is taking longer than expected. Please try again.");
+          setStep("studio");
+          return;
+        }
         pollAttempts += 1;
         try {
           const statusRes = await fetch(
-            `/api/vto/status/${json.task_id}?participant_id=${session.participantId}&token=${session.token}`
+            `/api/vto/status/${json.task_id}?participant_id=${session.participantId}&token=${session.token}`,
+            { signal: AbortSignal.timeout(15_000) },
           );
           const statusJson = await statusRes.json();
           if (pollGenRef.current !== myGen) return;
@@ -411,7 +421,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
             return;
           }
 
-          if (statusJson.status === "error" || pollAttempts >= MAX_POLL_ATTEMPTS) {
+          if (statusJson.status === "error" || pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
             setError(statusJson.error ?? "This render is taking longer than expected. Please try again.");
             setStep("studio");
             return;
@@ -419,14 +429,22 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
           pollRef.current = setTimeout(poll, 2500);
         } catch {
-          if (pollGenRef.current === myGen) pollRef.current = setTimeout(poll, 2500);
+          if (pollGenRef.current !== myGen) return;
+          if (pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
+            setError("This render is taking longer than expected. Please try again.");
+            setStep("studio");
+            return;
+          }
+          pollRef.current = setTimeout(poll, 2500);
         }
       };
 
       pollRef.current = setTimeout(poll, 2500);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof DOMException && err.name === "TimeoutError"
+        ? "YouCam did not respond in time. Please try again."
+        : err instanceof Error ? err.message : "Something went wrong");
       setStep("studio");
     }
   }
@@ -456,7 +474,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
         })
       );
       setRenderUrl(json.participant?.vto_render_url ?? renderUrl);
-      setStep("confirmed");
+      setIsConfirmed(true);
+      navigateTo("lineup", "replace");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm your look");
     } finally {
@@ -512,7 +531,14 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-rose-800/70">Your private studio</p>
               <h2 className="font-serif text-3xl text-stone-900">Find your look</h2>
             </div>
-            <p className="max-w-sm text-sm leading-relaxed text-stone-500">Upload your photo once, then try as many dresses as you like. Your previews stay private until you confirm.</p>
+            <div className="flex max-w-sm flex-col items-start gap-3 sm:items-end">
+              <p className="text-sm leading-relaxed text-stone-500">Upload your photo once, then try as many dresses as you like. Your previews stay private until you confirm.</p>
+              {isConfirmed && (
+                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("lineup")} className="border-stone-200 bg-white text-xs text-stone-700">
+                  <ArrowLeft size={14} /> Back to public lineup
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
@@ -700,7 +726,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
               variant="outline"
               size="sm"
               className="mt-2 shrink-0 border-stone-200 bg-transparent text-xs text-stone-600 hover:bg-blush-50 sm:mt-0"
-              onClick={() => setStep("studio")}
+              onClick={() => navigateTo("studio")}
             >
               <RotateCcw size={14} /> Change your look
             </Button>

@@ -4,6 +4,8 @@
  */
 
 const YOUCAM_BASE = process.env.YOUCAM_API_BASE ?? "https://yce-api-01.makeupar.com";
+const YOUCAM_REQUEST_TIMEOUT_MS = 15_000;
+const YOUCAM_UPLOAD_TIMEOUT_MS = 20_000;
 
 function authHeaders() {
   const key = process.env.YOUCAM_API_KEY;
@@ -39,6 +41,7 @@ async function requestUploadTicket(params: {
         },
       ],
     }),
+    signal: AbortSignal.timeout(YOUCAM_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -67,6 +70,7 @@ async function uploadBytes(uploadUrl: string, bytes: Buffer, contentType: string
     method: "PUT",
     headers: { "Content-Type": contentType },
     body,
+    signal: AbortSignal.timeout(YOUCAM_UPLOAD_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`YouCam file upload failed (${res.status}): ${await res.text()}`);
@@ -87,7 +91,7 @@ export async function uploadImageBuffer(bytes: Buffer, contentType = "image/jpeg
  * Registers + uploads an image from a public URL to YouCam.
  */
 export async function uploadImageFromUrl(imageUrl: string, contentType = "image/jpeg"): Promise<string> {
-  const imgRes = await fetch(imageUrl);
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(YOUCAM_UPLOAD_TIMEOUT_MS) });
   if (!imgRes.ok) throw new Error(`Could not fetch source image at ${imageUrl}`);
   const arrayBuffer = await imgRes.arrayBuffer();
   const bytes = Buffer.from(arrayBuffer);
@@ -133,6 +137,7 @@ export async function startClothTask(params: StartClothTaskParams): Promise<stri
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(YOUCAM_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -160,6 +165,7 @@ export async function getClothTaskStatus(taskId: string): Promise<YouCamTaskResu
   const res = await fetch(`${YOUCAM_BASE}/s2s/v2.0/task/cloth-v4/${taskId}`, {
     method: "GET",
     headers: authHeaders(),
+    signal: AbortSignal.timeout(YOUCAM_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -217,6 +223,7 @@ export async function startSkinToneTask(fileId: string): Promise<string> {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ src_file_id: fileId }),
+    signal: AbortSignal.timeout(YOUCAM_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -233,6 +240,7 @@ export async function getSkinToneTaskStatus(taskId: string): Promise<SkinToneTas
   const res = await fetch(`${YOUCAM_BASE}/s2s/v2.0/task/skin-tone-analysis/${taskId}`, {
     method: "GET",
     headers: authHeaders(),
+    signal: AbortSignal.timeout(YOUCAM_REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {

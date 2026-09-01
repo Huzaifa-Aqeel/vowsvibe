@@ -80,6 +80,24 @@ function loadCameraKit(): Promise<CameraKitApi> {
   return cameraKitPromise;
 }
 
+/**
+ * On the second camera launch the SDK is already cached, so loadCameraKit() resolves before
+ * React has committed the newly rendered mount point. Camera Kit then falls back to a tiny
+ * canvas at document origin. Wait for the required container to exist and have layout before
+ * calling YMK.init/openCameraKit.
+ */
+async function waitForCameraMount(): Promise<HTMLElement> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    const container = document.getElementById("YMK-module");
+    // Presence after a paint is the important requirement. The surrounding responsive
+    // card can legitimately measure below Camera Kit's 300px API minimum on narrow phones;
+    // init() receives clamped dimensions below, so that is not a mount failure.
+    if (container && container.isConnected) return container;
+  }
+  throw new Error("Camera mount point is not ready");
+}
+
 function dataUrlToFile(dataUrl: string): File {
   const [header, encoded] = dataUrl.split(",", 2);
   const mime = header.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
@@ -127,8 +145,13 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
   const objectUrlRef = useRef<string | null>(null);
   const listenerIdsRef = useRef<unknown[]>([]);
   const ymkRef = useRef<CameraKitApi | null>(null);
+  // The SDK emits `closed` both when the user taps its cancel control and when we call
+  // close() after a capture/failure. Only a user-initiated close should return to the
+  // pristine start screen; programmatic closes must preserve analysis/fallback state.
+  const programmaticCloseRef = useRef(false);
 
   const closeCamera = useCallback(() => {
+    programmaticCloseRef.current = true;
     try { ymkRef.current?.close(); } catch { /* Camera may already be closed. */ }
     setQuality(null);
   }, []);
@@ -173,16 +196,29 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
   }, [closeCamera]);
 
   const openCamera = useCallback(async () => {
+    // A fresh mount and init on every attempt makes reopening behave exactly like the
+    // first launch, even after the user cancelled Perfect Corp's full camera experience.
+    programmaticCloseRef.current = false;
     setError(null);
     setCameraNotice(null);
     setStatus("loading-camera");
     try {
       const ymk = await loadCameraKit();
+      const container = await waitForCameraMount();
       ymkRef.current = ymk;
       for (const id of listenerIdsRef.current) ymk.removeEventListener(id);
       listenerIdsRef.current = [];
 
       listenerIdsRef.current.push(
+        ymk.addEventListener("closed", () => {
+          if (programmaticCloseRef.current) {
+            programmaticCloseRef.current = false;
+            return;
+          }
+          setQuality(null);
+          setCameraNotice(null);
+          setStatus("idle");
+        }),
         ymk.addEventListener("faceQualityChanged", (payload) => setQuality(payload as CameraQuality)),
         ymk.addEventListener("cameraFailed", (payload) => {
           const code = typeof payload === "string" ? payload : (payload as { error?: string; code?: string } | null)?.error ?? (payload as { code?: string } | null)?.code;
@@ -206,9 +242,8 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
         }),
       );
 
-      const container = document.getElementById("YMK-module");
-      const width = Math.max(300, Math.min(640, container?.clientWidth ?? window.innerWidth));
-      const height = Math.max(300, Math.min(720, container?.clientHeight ?? window.innerHeight));
+      const width = Math.max(300, Math.min(640, container.clientWidth));
+      const height = Math.max(300, Math.min(720, container.clientHeight));
       ymk.init({
         faceDetectionMode: "shadefinder",
         imageFormat: "blob",
@@ -264,7 +299,7 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
         </div>
       ) : status === "camera" || status === "loading-camera" ? (
         <div className="relative h-full min-h-[300px] w-full overflow-hidden rounded-xl bg-stone-950">
-          <div id="YMK-module" className="h-full w-full" />
+          <div id="YMK-module" className="h-full min-h-[300px] w-full min-w-0" />
           <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-full bg-black/65 px-3 py-2 text-center text-[11px] font-medium text-white backdrop-blur-sm">
             {status === "loading-camera" ? "Starting your camera…" : qualityMessage(quality)}
           </div>
@@ -273,20 +308,19 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
           </button>
         </div>
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl bg-white p-5 text-center">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-xl bg-white p-6 text-center">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-blush-50 text-blush-500"><Camera size={22} /></div>
-          <div>
-            <p className="text-sm font-semibold text-stone-800">Take a guided skin-tone selfie</p>
-            <p className="mt-1 text-[10px] leading-relaxed text-neutral-400">Live guidance checks your angle, distance, and lighting for a more accurate result.</p>
-          </div>
+          <p className="text-sm font-semibold text-stone-800">Take a guided skin-tone selfie</p>
           {cameraNotice && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] text-amber-800">{cameraNotice}</p>}
-          <button type="button" onClick={openCamera} className="flex w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-950">
-            <Camera size={14} /> Open guided camera
-          </button>
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 hover:bg-stone-50">
-            <ImagePlus size={14} /> Upload a selfie
-          </button>
-          <span className="flex items-center gap-1 text-[9px] text-neutral-400"><ShieldCheck size={10} /> Analyzed once and never saved</span>
+          <div className="flex w-full flex-col gap-2.5">
+            <button type="button" onClick={openCamera} className="flex w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-950">
+              <Camera size={14} /> Open guided camera
+            </button>
+            <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 hover:bg-stone-50">
+              <ImagePlus size={14} /> Upload a selfie
+            </button>
+          </div>
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600"><ShieldCheck size={12} className="text-emerald-600" /> Analyzed once and never saved</span>
         </div>
       )}
       <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void analyze(file); }} />

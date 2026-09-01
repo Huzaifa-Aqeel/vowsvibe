@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Palette, Scissors, Layers } from "lucide-react";
+import { Palette, Scissors, Layers } from "lucide-react";
 import type { EventRow } from "@/lib/types";
 import { rankPaletteForUndertone, scoreSwatchForUndertone, type Undertone } from "@/lib/color/undertone";
 
@@ -50,10 +50,7 @@ export default function EventSummary({ event, undertone }: EventSummaryProps) {
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
           
           {/* Header Section */}
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-100/70 text-rose-800 border border-rose-200/60 shadow-inner">
-              <Sparkles className="h-6 w-6" />
-            </div>
+          <div className="flex items-center">
             <div>
               <span className="inline-block text-[11px] font-bold uppercase tracking-[0.24em] text-rose-800/80">
                 The Vision

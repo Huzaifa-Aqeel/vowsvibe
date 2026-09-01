@@ -8,7 +8,7 @@ export const maxDuration = 300;
 const PRESETS: Record<string, string> = {
   natural: "Use natural editorial lighting, realistic skin and fabric texture, and restrained color grading.",
   venue: "Preserve the supplied venue architecture and atmosphere faithfully.",
-  cohesive: "Blend only the existing people naturally into the scene with consistent perspective, scale, light, and contact shadows.",
+  cohesive: "Blend the people naturally into the scene with consistent perspective, scale, light, and contact shadows.",
   formal: "Adjust only the existing people toward a polished formal portrait with elegant, relaxed posture.",
 };
 
@@ -97,52 +97,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   }
   const selected = (body.presets ?? []).filter((id) => id in PRESETS).slice(0, 4);
   const prompt = [
-    "EDIT the supplied image into a natural, photorealistic wedding-party group photograph.",
-    "",
-    "PEOPLE:",
-    "Use only the people already visible in the source image.",
-    "Preserve every existing person exactly once.",
-    "Do not add, duplicate, remove, replace, merge, or invent anyone.",
-    "Do not add background guests, reflections containing people, partial people, or extra faces.",
-    "",
-    "IDENTITY & WARDROBE:",
-    "Preserve each person's recognizable face, skin tone, hairstyle, body proportions, and identity.",
-    "Preserve each person's exact dress color, neckline, silhouette, fabric appearance, design, and length.",
-    "Do not redesign or recolor any dress.",
-    "",
-    "POSING:",
-    "The original standing poses are only staging references and are NOT the desired final poses.",
-    "Actively re-pose the existing people into a believable wedding-group pose.",
-    "",
-    "Bring them naturally closer together.",
-    "Use subtle overlap between neighboring people.",
-    "Angle shoulders and bodies slightly toward the center or toward each other.",
-    "Use relaxed posture, gentle inward leaning, varied natural arm positions, realistic hand placement, and natural differences in stance.",
-    "The people should look socially connected and photographed together, not like separate front-facing cutouts.",
-    "",
-    "Preserve the existing left-to-right person order, but you may adjust spacing, position, body angle, and stance enough to create a convincing group composition.",
-    "",
-    "VENUE & REALISM:",
-    "Preserve the supplied venue/background.",
-    "Keep intentional empty space free of additional people.",
-    "Integrate the group naturally with consistent perspective, lighting, floor contact, contact shadows, depth, and realistic overlap.",
-    "Remove visible cutout edges.",
-    "",
-    "PRIORITIES:",
-    "1. Preserve exactly the existing people.",
-    "2. Preserve identity and wardrobe.",
-    "3. Visibly transform the static poses into natural group posing.",
-    "4. Preserve the venue.",
-    "5. Improve photographic realism.",
-    "",
-    "Preserving identity does not mean preserving the original body pose.",
-    "",
-    "AVOID:",
-    "extra people, duplicated people, missing people, merged bodies, extra faces, extra limbs, altered faces, changed dresses, changed dress colors, stiff lineup, identical poses, mannequin posture, excessive spacing, pasted cutouts, collage, floating feet, text, logo, watermark.",
-    "",
+    "EDIT the supplied image. Do not create a new wedding party.",
+    "PERSON PRESERVATION IS THE HIGHEST PRIORITY. The only people allowed in the output are the people already visible in the supplied image. Preserve every existing person exactly once.",
+    "Do not add, duplicate, clone, remove, merge, replace, or invent any person. Do not add background guests, partial bodies, reflections containing people, extra faces, or any additional human anywhere in the image. Keep intentional empty space empty.",
+    "IDENTITY AND WARDROBE: Preserve each existing person's face, skin tone, hair, body proportions, dress color, neckline, silhouette, fabric appearance, and dress length.",
+    "VENUE AND COMPOSITION: Preserve the supplied venue and background. Preserve the existing left-to-right person order and each person's approximate region. Do not substantially redesign the composition.",
+    "POSE EDIT ONLY: Re-pose only the existing people into a natural bridal group photo. Bring them moderately closer, allow subtle overlap, use slight inward shoulder and body angles, gentle inward leaning, relaxed posture, and natural arms and hands. Do not introduce a new person to fill space or complete a pose.",
+    "If a pose would require inventing, duplicating, replacing, merging, or removing someone, do not make that pose. Retain the existing person instead and use a smaller, safer pose adjustment.",
+    "PHOTOGRAPHIC INTEGRATION: Remove cutout edges while preserving every person. Ground existing feet naturally, and make perspective, camera height, lighting, contact shadows, depth, and overlap consistent with the supplied venue. The result should remain an edit of this exact image, not a newly generated scene.",
+    "PRIORITY ORDER: person preservation > identity and wardrobe preservation > natural posing > photographic polish.",
     ...selected.map((id) => PRESETS[id]),
-    "",
-    "Return only the finished edited image.",
+    "Return only the finished image.",
   ].join("\n");
   const apiKey = process.env.DASHSCOPE_API_KEY;
   const baseUrl = (process.env.DASHSCOPE_API_BASE ?? "").replace(/\/$/, "");
@@ -156,7 +121,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   );
 
   let response: Response;
-  let raw: string;
   try {
     response = await fetch(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
       method: "POST",
@@ -169,19 +133,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
           // This prompt is intentionally detailed; automatic rewriting can weaken
           // identity, wardrobe, person-count, and posing constraints.
           prompt_extend: false,
-          negative_prompt: "extra people, duplicated people, missing people, merged bodies, extra faces, extra limbs, altered faces, changed dresses, changed dress colors, stiff lineup, identical poses, mannequin posture, excessive spacing, pasted cutouts, collage, floating feet, text, logo, watermark",
+          negative_prompt: "extra person, extra woman, extra bride, extra bridesmaid, crowd, guests, background people, cloned person, duplicated person, duplicated face, duplicated body, missing person, merged people, replacement person, additional human, reflection containing person, altered face, changed dress, changed dress color, extra limbs, distorted anatomy, stiff front-facing lineup, mannequin pose, collage, pasted cutouts, floating feet",
           watermark: false,
         },
       }),
       // Leave enough of the route's 300-second budget to download and return the image.
       signal: AbortSignal.timeout(145_000),
     });
-    console.info(
-      `[group-preview:${eventId}] Qwen responded status=${response.status} requestId=${response.headers.get("x-request-id") ?? "unavailable"} durationMs=${Date.now() - requestStartedAt}`,
-    );
-    // Body consumption can also reject when the fetch signal expires, so it must
-    // remain inside the same protected block as the initial request.
-    raw = await response.text();
   } catch (error) {
     const code = networkErrorCode(error);
     // Do not pass undici's raw AggregateError/DOMException to Next's dev logger.
@@ -194,6 +152,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
         : "The server could not connect to the Alibaba Cloud workspace.";
     return NextResponse.json({ error: detail, code: code ?? "DASHSCOPE_NETWORK_ERROR" }, { status: 504 });
   }
+  console.info(
+    `[group-preview:${eventId}] Qwen responded status=${response.status} requestId=${response.headers.get("x-request-id") ?? "unavailable"} durationMs=${Date.now() - requestStartedAt}`,
+  );
+  const raw = await response.text();
   if (!response.ok) {
     console.error("DashScope Qwen Image request failed", response.status, raw.slice(0, 1000));
     return NextResponse.json({ error: `Qwen generation failed (${response.status})` }, { status: 502 });
@@ -206,11 +168,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
     return NextResponse.json({ error: "Qwen did not return a valid image" }, { status: 502 });
   }
 
+  let generated: Response;
+  try {
+    generated = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
+  } catch (error) {
+    const code = networkErrorCode(error);
+    console.error(`Could not connect to Qwen image storage [${code ?? "unknown"}]: ${safeErrorMessage(error)}`);
+    return NextResponse.json({ error: "Could not connect to Alibaba image storage", code: code ?? "DASHSCOPE_DOWNLOAD_ERROR" }, { status: 504 });
+  }
+  const contentType = generated.headers.get("content-type")?.split(";")[0] ?? "";
+  if (!generated.ok || !contentType.startsWith("image/")) {
+    console.error("Could not download Qwen image", generated.status, contentType);
+    return NextResponse.json({ error: "Could not download the generated Qwen image" }, { status: 502 });
+  }
+  const bytes = Buffer.from(await generated.arrayBuffer());
+  if (bytes.length > 20 * 1024 * 1024) return NextResponse.json({ error: "The generated Qwen image is too large" }, { status: 502 });
   console.info(
-    `[group-preview:${eventId}] Returning trusted Qwen image URL host=${new URL(imageUrl).host} totalDurationMs=${Date.now() - requestStartedAt}`,
+    `[group-preview:${eventId}] Qwen image downloaded contentType=${contentType} bytes=${bytes.length} totalDurationMs=${Date.now() - requestStartedAt}`,
   );
-  // Qwen returns a temporary signed OSS URL. Return it directly because some
-  // deployment networks can reach the inference endpoint but cannot stream the
-  // separate OSS host. The browser retrieves it from the user's network instead.
-  return NextResponse.json({ image: imageUrl });
+  return NextResponse.json({ image: `data:${contentType};base64,${bytes.toString("base64")}` });
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ImagePlus, Loader2, RotateCcw, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
+import { Check, ImagePlus, Loader2, RotateCcw, ShieldCheck, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DressDropzone } from "@/components/DressDropzone";
@@ -251,7 +251,7 @@ async function startLook(dressUrl: string) {
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-rose-400 to-blush-300" />
       
       {/* Header */}
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-stone-200/60 pb-6">
+      <div className="mb-8 border-b border-stone-200/60 pb-6">
         <div>
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-rose-800/80">
             Bride&apos;s Private Studio
@@ -260,9 +260,6 @@ async function startLook(dressUrl: string) {
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
             Upload one full-body photo, add as many dresses as you wish, and see each look on you before the fitting room.
           </p>
-        </div>
-        <div className="flex items-center gap-2 rounded-full border border-rose-200/60 bg-rose-50/70 px-3.5 py-1.5 text-xs font-medium text-rose-900 shadow-sm">
-          <Sparkles size={14} className="text-rose-600" /> Private previews
         </div>
       </div>
 

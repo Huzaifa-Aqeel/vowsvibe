@@ -77,7 +77,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [renderUrl, setRenderUrl] = useState<string | null>(null);
   const [history, setHistory] = useState<VtoHistoryEntry[]>([]);
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   // Tracks which VTO run (by task_id) is the one currently shown in "preview" — whether it
   // just finished or was picked from her lookbook — so confirm() knows exactly which look's
   // dress/render paths to persist, instead of trusting whatever the DB happens to hold from
@@ -381,7 +380,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not start render");
       setHistory((current) => [...current, { id: json.attempt_id, dress_path: null, dress_url: nextDressUrl, render_path: null, task_id: json.task_id, status: "processing", created_at: new Date().toISOString() }]);
-      setSelectedHistoryId(null);
 
       // This is the only polling left in the app: the YouCam task itself has no
       // push callback, so we must ask YouCam until this render finishes.
@@ -415,7 +413,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
           if (statusJson.status === "success") {
             setRenderUrl(statusJson.render_url);
             setHistory((current) => current.map((entry) => entry.task_id === json.task_id ? { ...entry, status: "ready", render_url: statusJson.render_url } : entry));
-            setSelectedHistoryId(null);
             setActiveTaskId(json.task_id);
             setStep("preview");
             return;
@@ -647,8 +644,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                   <button
                     key={entry.id}
                     type="button"
-                    onClick={() => { setSelectedHistoryId(entry.id); setActiveTaskId(entry.task_id); setRenderUrl(entry.render_url ?? null); setDressUrl(entry.dress_preview_url ?? entry.dress_url); setStep("preview"); }}
-                    className={`relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border bg-stone-100 transition ${selectedHistoryId === entry.id ? "border-rose-400 ring-2 ring-rose-200" : "border-stone-200"}`}
+                    onClick={() => { setActiveTaskId(entry.task_id); setRenderUrl(entry.render_url ?? null); setDressUrl(entry.dress_preview_url ?? entry.dress_url); setStep("preview"); }}
+                    className="relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-stone-200 bg-stone-100 transition hover:border-rose-300"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={entry.render_url} alt="Saved try-on" className="h-full w-full object-cover" />
@@ -677,34 +674,67 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
       {/* ── STEP 5: PREVIEW ── */}
       {step === "preview" && renderUrl && (
-        <Card className="mx-auto max-w-lg border-stone-200 bg-white/80 shadow-none p-6 rounded-2xl">
-          <h2 className="mb-1 font-serif text-xl">Here&apos;s your look</h2>
-          <p className="mb-4 text-sm text-neutral-500">
-            Only you can see this. Happy with it? Confirm to join the shared lineup.
-          </p>
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs leading-relaxed text-emerald-800"><ShieldCheck className="mt-0.5 shrink-0" size={16} /> Your selected VTO look joins the shared lineup. Your photo stays private and is only removed if the bride deletes this event.</div>
-          {error && <p className="mb-3 text-xs text-red-500">{error}</p>}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={renderUrl} alt="Your virtual try-on" className="mb-4 w-full rounded-xl border border-rose-100" />
-          {dressUrl && (
-            <div className="mb-4 flex items-center gap-2">
-              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-stone-200">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={dressUrl} alt="Selected dress" className="h-full w-full object-cover" />
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/80 bg-white/80 p-6 shadow-xl shadow-stone-900/[0.03] backdrop-blur-xl sm:p-10">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-rose-400 to-blush-300" />
+
+          <div className="mb-8 border-b border-stone-200/60 pb-6">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.25em] text-rose-800/80">
+              Bridesmaid&apos;s Private Studio
+            </p>
+            <h2 className="font-serif text-3xl font-normal text-stone-900 sm:text-4xl">Find your look</h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
+              Explore your previews, choose the look you love, and confirm it when you&apos;re ready to join the bridal-party lineup.
+            </p>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="overflow-hidden rounded-2xl border border-rose-100 bg-stone-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={renderUrl} alt="Bridesmaid virtual try-on preview" className="max-h-[650px] w-full object-contain" />
+            </div>
+            <div className="flex flex-col justify-center rounded-2xl bg-[#fcf7f5] p-6">
+              <span className="mb-3 inline-flex w-fit items-center gap-1 rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-800 shadow-xs">
+                <Check size={12} /> Your preview
+              </span>
+              <h3 className="font-serif text-2xl text-stone-900">A beautiful fit.</h3>
+              <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                Try another dress, or keep this look. Your source photo stays private and is only removed if the bride deletes this event.
+              </p>
+              {error && <p className="mt-4 text-xs text-red-500">{error}</p>}
+              <Button className="mt-6 w-full bg-stone-900 text-white transition-colors hover:bg-rose-950" onClick={confirm} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" size={16} /> : <ShieldCheck size={15} />}
+                {busy ? "Joining lineup…" : "Confirm & join lineup"}
+              </Button>
+              <Button variant="outline" className="mt-2.5 w-full border-stone-200" onClick={() => setStep("studio")}>
+                <RotateCcw size={15} /> Try another dress
+              </Button>
+            </div>
+          </div>
+
+          {history.some((entry) => (entry.status === "ready" || entry.status === "confirmed") && entry.render_url) && (
+            <div className="mt-10 border-t border-stone-200/60 pt-6">
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-stone-400">
+                Your lookbook · {history.filter((entry) => (entry.status === "ready" || entry.status === "confirmed") && entry.render_url).length} previews
+              </p>
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {history.map((entry) => (entry.status === "ready" || entry.status === "confirmed") && entry.render_url ? (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => { setActiveTaskId(entry.task_id); setRenderUrl(entry.render_url ?? null); setDressUrl(entry.dress_preview_url ?? entry.dress_url); }}
+                    className="relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-stone-200 bg-stone-100 transition hover:border-rose-300"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={entry.render_url} alt="Saved bridesmaid look" className="h-full w-full object-cover" />
+                    {entry.status === "confirmed" && (
+                      <span className="absolute inset-x-0 bottom-0 bg-emerald-600/90 py-0.5 text-center text-[9px] font-bold uppercase tracking-wide text-white">Confirmed</span>
+                    )}
+                  </button>
+                ) : null)}
               </div>
-              <p className="text-xs text-stone-500">This is your selected dress for this look.</p>
             </div>
           )}
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setStep("studio")}>
-              Try another dress
-            </Button>
-            <Button className="flex-1 bg-stone-900 hover:bg-rose-950 text-white" onClick={confirm} disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-              {busy ? "Joining lineup…" : "Confirm & join lineup"}
-            </Button>
-          </div>
-        </Card>
+        </section>
       )}
 
       {/* ── STEP 6: CONFIRMED ── */}

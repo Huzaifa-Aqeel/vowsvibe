@@ -104,3 +104,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
 
   return NextResponse.json({ suggestion: data }, { status: 201 });
 }
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
+  const { participantId } = await params;
+  const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
+  if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+
+  const body = (await req.json().catch(() => null)) as { suggestion_id?: unknown } | null;
+  const suggestionId = typeof body?.suggestion_id === "string" ? body.suggestion_id : "";
+  if (!suggestionId) return NextResponse.json({ error: "Suggestion ID is required." }, { status: 400 });
+
+  // A participant may permanently remove only messages delivered to their own inbox.
+  // Using both predicates also prevents a valid session from probing/deleting other rows.
+  const { data, error } = await auth.service
+    .from("participant_suggestions")
+    .delete()
+    .eq("id", suggestionId)
+    .eq("to_participant_id", auth.participant.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Suggestion not found." }, { status: 404 });
+  return NextResponse.json({ ok: true });
+}

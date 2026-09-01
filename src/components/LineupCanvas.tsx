@@ -21,6 +21,7 @@ import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/li
 import { classifyBridalPaletteBadge, classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
 import { browserFileActions } from "@/lib/platform/file-actions";
 import { prepareImageUpload } from "@/lib/images/prepare-upload";
+import { lineupCanvasHeight } from "@/lib/lineup/geometry";
 
 const FABRIC_CDN = "https://cdn.jsdelivr.net/npm/fabric@6.7.1/dist/index.min.js";
 const SAME_FAMILY_OTHER_FILTER_ID = "same-family-other";
@@ -137,15 +138,7 @@ function defaultPosition(participant: ParticipantRow, index: number, participant
 function responsiveCanvasHeight(width: number, element: HTMLCanvasElement) {
   const viewportHeight = document.documentElement.clientHeight;
   const canvasTop = element.getBoundingClientRect().top;
-  // On desktop the lineup is the primary workspace: target 75dvh and bound it
-  // so very tall or short monitors still get a balanced composition. Mobile and
-  // short landscape screens continue to use only the measured remaining space.
-  if (width >= 768 && viewportHeight >= 700) {
-    return Math.round(Math.max(480, Math.min(760, viewportHeight * 0.75)));
-  }
-  // Reserve room for the overlaid action bar and the page's bottom breathing room.
-  const availableHeight = viewportHeight - canvasTop - 88;
-  return Math.max(280, Math.min(Math.round(width * 0.53), availableHeight));
+  return lineupCanvasHeight(width, viewportHeight, canvasTop);
 }
 
 function visiblePersonBounds(image: FabricImageLike) {

@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { LineupPosition, ParticipantRow } from "@/lib/types";
+import { lineupCanvasHeight } from "@/lib/lineup/geometry";
 
 
 /**
@@ -145,10 +146,36 @@ export function LineupRow({
   ));
 
   const figureRefs = useRef(new Map<string, HTMLDivElement>());
+  const sceneRef = useRef<HTMLDivElement | null>(null);
   const prevRects = useRef(new Map<string, DOMRect>());
   const seenIds = useRef(new Set<string>(initialParticipants.filter((p) => p.status === "confirmed" && p.cutout_url).map((p) => p.id)));
   const [suggestionTargetId, setSuggestionTargetId] = useState<string | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [horizontalPositionScale, setHorizontalPositionScale] = useState(1);
+
+  // Saved x values belong to the bride's composition canvas. The confirmed/public
+  // view can be shorter because it shares the viewport with invite UI; compensate
+  // for that aspect-ratio difference so gaps and overlaps remain visually identical.
+  useLayoutEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    const updateScale = () => {
+      const { width, height, top } = scene.getBoundingClientRect();
+      if (!width || !height) return;
+      const compositionHeight = lineupCanvasHeight(width, document.documentElement.clientHeight, top);
+      setHorizontalPositionScale(height / compositionHeight);
+    };
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(scene);
+    window.addEventListener("resize", updateScale);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateScale);
+    };
+  }, [expanded, participants.length]);
 
   // No polling: the database emits a safe lineup_updates row only when a participant
   // actually becomes confirmed. We then make one public lineup read to get the complete,
@@ -234,14 +261,14 @@ export function LineupRow({
           </div>
         </div>
       ) : (
-        <div className={`relative w-full overflow-hidden rounded-xl bg-stone-300 shadow-[0_8px_24px_-14px_rgba(28,25,23,0.28)] ring-1 ring-inset ring-white/40 ${expanded ? "lineup-expanded-scene" : "aspect-[16/9] sm:aspect-[21/9]"}`}>
+        <div ref={sceneRef} className={`relative w-full overflow-hidden rounded-xl bg-stone-300 shadow-[0_8px_24px_-14px_rgba(28,25,23,0.28)] ring-1 ring-inset ring-white/40 ${expanded ? "lineup-expanded-scene" : "aspect-[16/9] sm:aspect-[21/9]"}`}>
           <div
             className="lineup-pan-surface absolute inset-0"
-            style={{ overflowX: participants.length > 6 ? "auto" : "hidden" }}
+            style={{ overflow: "hidden" }}
           >
             <div
               className="relative h-full bg-gradient-to-b from-stone-300 via-stone-200 to-stone-300"
-              style={{ minWidth: participants.length > 6 ? `${participants.length * 16}%` : "100%" }}
+              style={{ width: "100%" }}
             >
           {/* Soft studio-backdrop feel without requiring a real venue photo asset. */}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_18%,rgba(255,255,255,0.4),transparent_58%)]" />
@@ -264,7 +291,9 @@ export function LineupRow({
                 className={`absolute flex -translate-x-1/2 touch-manipulation flex-col items-center ${currentParticipantId && suggestionsOpen ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
                 onClick={() => currentParticipantId && suggestionsOpen && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
                 style={{
-                  left: positions[p.id] ? `${positions[p.id].x * 100}%` : `${left}%`,
+                  left: positions[p.id]
+                    ? `${(0.5 + (positions[p.id].x - 0.5) * horizontalPositionScale) * 100}%`
+                    : `${left}%`,
                   bottom: positions[p.id] ? `${positions[p.id].y * 100}%` : isBack ? "6%" : "4%",
                   height: `${visibleHeightPct}%`,
                   zIndex: positions[p.id]?.z_index ?? (p.role === "bride" ? 10 : isBack ? 3 : 6),

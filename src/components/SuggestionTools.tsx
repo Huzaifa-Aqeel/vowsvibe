@@ -94,10 +94,32 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, currentParticipantId, currentParticipantToken]);
 
-  function dismissSuggestion(suggestionId: string) {
-    // UI-only dismissal: keep the database row and realtime behavior untouched.
+  async function dismissSuggestion(suggestionId: string) {
+    const removed = suggestions.find((suggestion) => suggestion.id === suggestionId);
+    if (!removed || !currentParticipantId) return;
+
+    // Remove immediately, then restore the message if permanent deletion fails.
     dismissedSuggestionIdsRef.current = new Set(dismissedSuggestionIdsRef.current).add(suggestionId);
     setSuggestions((current) => current.filter((suggestion) => suggestion.id !== suggestionId));
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggestion_id: suggestionId }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error ?? "Could not delete suggestion");
+    } catch (err) {
+      const nextDismissed = new Set(dismissedSuggestionIdsRef.current);
+      nextDismissed.delete(suggestionId);
+      dismissedSuggestionIdsRef.current = nextDismissed;
+      setSuggestions((current) => current.some((suggestion) => suggestion.id === suggestionId)
+        ? current
+        : [...current, removed].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setError(err instanceof Error ? err.message : "Could not delete suggestion");
+    }
   }
 
   async function sendSuggestion() {
@@ -156,7 +178,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
                     type="button"
                     aria-label="Dismiss suggestion"
                     title="Dismiss suggestion"
-                    onClick={() => dismissSuggestion(suggestion.id)}
+                    onClick={() => void dismissSuggestion(suggestion.id)}
                     className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-400 transition active:bg-white active:text-stone-700 sm:hover:bg-white sm:hover:text-stone-700"
                   >
                     <X size={11} />

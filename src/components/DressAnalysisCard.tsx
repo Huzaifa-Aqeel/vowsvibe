@@ -128,16 +128,6 @@ export function DressAnalysisCard({
               </span>
             ) : null}
 
-            {analysis.contextSuggestions && analysis.contextSuggestions.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {analysis.contextSuggestions.map((suggestion) => (
-                  <span key={suggestion} className="inline-flex items-center rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[9px] font-medium text-stone-600">
-                    {suggestion}
-                  </span>
-                ))}
-              </div>
-            )}
-
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
               <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">{analysis.explanationTitle}</p>
               <div className="space-y-2 text-[11px] leading-relaxed text-stone-600">

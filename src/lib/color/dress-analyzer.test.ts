@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeDressWithSkinAndHair,
+  isWashoutRisk,
+  scoreChromaCompatibility,
+  scoreLightnessCompatibility,
+  scoreUndertoneHueCompatibility,
   type YouCamProfile,
 } from "./dress-analyzer";
 
@@ -29,7 +33,7 @@ test("missing hair uses the same explicit fallback for null and omitted values",
 test("low chroma with low lightness separation can trigger washout risk", () => {
   const result = analyzeDressWithSkinAndHair("#B9A49D", baseProfile);
   assert.equal(result.matchTier, "washout-risk");
-  assert.equal(result.badgeLabel, "Less Recommended");
+  assert.equal(result.badgeLabel, "Washout Risk");
 });
 
 test("low chroma with strong lightness separation is not washout risk", () => {
@@ -47,11 +51,55 @@ test("a saturated dress with similar L* is not automatically a washout risk", ()
   assert.notEqual(result.matchTier, "washout-risk");
 });
 
+test("low-match remains reachable and distinct from washout risk", () => {
+  const result = analyzeDressWithSkinAndHair("#E693AD", {
+    skinHex: "#D8B4A0",
+    undertone: "warm",
+  });
+  assert.equal(result.score, 65);
+  assert.equal(result.matchTier, "low-match");
+  assert.equal(result.badgeLabel, "Less Recommended");
+});
+
 test("undertone, lightness, and chroma scoring is deterministic", () => {
   const first = analyzeDressWithSkinAndHair("#7F9B76", baseProfile);
   const second = analyzeDressWithSkinAndHair("#7F9B76", baseProfile);
   assert.deepEqual(first, second);
-  assert.match(first.badgeLabel, /^(Excellent Match|Strong Match|Compatible|Less Recommended)$/);
+  assert.match(first.badgeLabel, /^(Excellent Match|Strong Match|Compatible|Less Recommended|Washout Risk)$/);
+});
+
+test("lightness scoring stays continuous around former step edges", () => {
+  for (const edge of [7, 14, 24, 38]) {
+    const below = scoreLightnessCompatibility(edge - 0.01);
+    const at = scoreLightnessCompatibility(edge);
+    const above = scoreLightnessCompatibility(edge + 0.01);
+    assert.ok(below <= at && at <= above);
+    assert.ok(above - below < 0.2);
+  }
+});
+
+test("chroma scoring stays continuous at personal-contrast boundaries", () => {
+  for (const edge of [18, 38]) {
+    const below = scoreChromaCompatibility(20, 40, edge - 0.01);
+    const at = scoreChromaCompatibility(20, 40, edge);
+    const above = scoreChromaCompatibility(20, 40, edge + 0.01);
+    assert.ok(Math.abs(at - below) < 0.1);
+    assert.ok(Math.abs(above - at) < 0.1);
+  }
+});
+
+test("low-chroma hue confidence is smooth at chroma 8", () => {
+  const below = scoreUndertoneHueCompatibility({ l: 50, a: 7.99, b: 0 }, "warm");
+  const at = scoreUndertoneHueCompatibility({ l: 50, a: 8, b: 0 }, "warm");
+  const above = scoreUndertoneHueCompatibility({ l: 50, a: 8.01, b: 0 }, "warm");
+  assert.ok(Math.abs(at - below) < 0.1);
+  assert.ok(Math.abs(above - at) < 0.1);
+});
+
+test("washout chroma boundary at 16 is explicit", () => {
+  assert.equal(isWashoutRisk(60, 12, 55, 15.999), true);
+  assert.equal(isWashoutRisk(60, 12, 55, 16), false);
+  assert.equal(isWashoutRisk(60, 12, 55, 16.001), false);
 });
 
 test("recommendations do not claim measured feature contrast when hair is unavailable", () => {

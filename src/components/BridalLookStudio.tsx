@@ -8,13 +8,21 @@ import { Card } from "@/components/ui/card";
 import { DressDropzone } from "@/components/DressDropzone";
 import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import { PhotoFlipCard } from "@/components/PhotoFlipCard";
+import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import type { SkinToneResult } from "@/components/SelfieUpload";
 import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
-import type { Undertone } from "@/lib/color/undertone";
+import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
+import { uniqueDressesByUrl } from "@/lib/dresses";
 import type { BridalLookView, EventRow } from "@/lib/types";
 
 
 type StudioState = "setup" | "processing" | "preview";
+
+function currentUndertone(skinHex: string | null | undefined, stored: Undertone | null | undefined) {
+  if (!skinHex) return stored ?? null;
+  try { return classifySkinTone(skinHex).undertone; }
+  catch { return stored ?? null; }
+}
 
 export function BridalLookStudio({ event, initialLooks, brideParticipantId, initialPhotoUrl, initialUndertone, initialSkinToneHex, initialHairToneHex }: { event: EventRow; initialLooks: BridalLookView[]; brideParticipantId: string; initialPhotoUrl?: string | null; initialUndertone?: Undertone | null; initialSkinToneHex?: string | null; initialHairToneHex?: string | null }) {
   const router = useRouter();
@@ -31,7 +39,7 @@ export function BridalLookStudio({ event, initialLooks, brideParticipantId, init
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [activeLookId, setActiveLookId] = useState<string | null>(initialLooks[0]?.id ?? null);
-  const [undertone, setUndertone] = useState<Undertone | null>(initialUndertone ?? null);
+  const [undertone, setUndertone] = useState<Undertone | null>(() => currentUndertone(initialSkinToneHex, initialUndertone));
   const [skinToneHex, setSkinToneHex] = useState<string | null>(initialSkinToneHex ?? null);
   const [hairToneHex, setHairToneHex] = useState<string | null>(initialHairToneHex ?? null);
   const [dressAnalyses, setDressAnalyses] = useState<Record<string, DressAnalysisResult>>({});
@@ -51,7 +59,7 @@ const stopPolling = () => {
     fetch(`/api/participants/${brideParticipantId}/dresses`)
       .then((res) => res.json())
       .then((json) =>
-        setDresses(
+        setDresses(uniqueDressesByUrl(
           (json.dresses ?? [])
             .map((dress: unknown) => {
               const d = dress as Record<string, unknown>;
@@ -63,7 +71,7 @@ const stopPolling = () => {
               } as StoredDress;
             })
             .filter((d: StoredDress) => Boolean(d.url))
-        )
+        ))
       )
       .catch(() => undefined);
     return () => stopPolling();
@@ -247,6 +255,7 @@ async function startLook(dressUrl: string) {
 
   return (
     <section className="relative overflow-hidden rounded-[2rem] border border-white/80 bg-white/80 p-6 shadow-xl shadow-stone-900/[0.03] backdrop-blur-xl sm:p-10">
+      <ColorGuidanceDisclaimer participantId={brideParticipantId} />
       {/* Top Accent Line */}
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-rose-400 to-blush-300" />
       

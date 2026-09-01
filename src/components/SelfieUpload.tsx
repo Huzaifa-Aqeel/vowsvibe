@@ -119,7 +119,6 @@ function qualityMessage(quality: CameraQuality | null) {
 export interface SkinToneResult {
   hex: string;
   undertone: Undertone;
-  depth: "fair" | "light" | "medium" | "deep" | null;
   hairHex: string | null;
   hairColorName: string | null;
 }
@@ -179,7 +178,6 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
       onResult({
         hex: json.skin_tone_hex,
         undertone: json.undertone,
-        depth: json.depth ?? null,
         hairHex: json.hair_tone_hex ?? null,
         hairColorName: json.hair_color_name ?? null,
       });

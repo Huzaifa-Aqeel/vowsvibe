@@ -53,7 +53,13 @@ export function PhotoFlipCard({
           )}
         >
           {/* Front — full-body VTO photo (stored in Supabase, unchanged) */}
-          <div className="absolute inset-0 overflow-hidden rounded-2xl border-2 border-dashed border-rose-200/70 bg-rose-50/20 [backface-visibility:hidden]">
+          <div
+            className={cn(
+              "absolute inset-0 overflow-hidden rounded-2xl border-2 border-dashed border-rose-200/70 bg-rose-50/20 [backface-visibility:hidden]",
+              flipped ? "pointer-events-none" : "pointer-events-auto"
+            )}
+            aria-hidden={flipped}
+          >
             <DressDropzone
               folder={photoFolder}
               currentUrl={photoUrl}
@@ -64,7 +70,13 @@ export function PhotoFlipCard({
           </div>
 
           {/* Back — selfie for skin tone (never stored) */}
-          <div className="absolute inset-0 overflow-hidden rounded-2xl border-2 border-dashed border-rose-200/70 bg-rose-50/20 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+          <div
+            className={cn(
+              "absolute inset-0 overflow-hidden rounded-2xl border-2 border-dashed border-rose-200/70 bg-rose-50/20 [backface-visibility:hidden] [transform:rotateY(180deg)]",
+              flipped ? "pointer-events-auto" : "pointer-events-none"
+            )}
+            aria-hidden={!flipped}
+          >
             <SelfieUpload participantId={participantId} token={token} onResult={onSkinToneResult} />
           </div>
         </div>

@@ -1,5 +1,4 @@
-import { hexToLab, type Lab, type Undertone } from "@/lib/color/undertone";
-import type { SwatchColor } from "@/lib/types";
+import { hexToLab, scoreLabForUndertone, type Lab, type Undertone } from "@/lib/color/undertone";
 
 export interface YouCamProfile {
   skinHex: string;
@@ -13,15 +12,11 @@ export interface DressAnalysisResult {
   badgeLabel: string;
   explanationTitle: "Why this shade works" | "What to consider";
   reasons: string[];
-  contextSuggestions?: string[];
 }
 
 interface Lch {
   l: number;
-  a: number;
-  b: number;
   c: number;
-  h: number;
 }
 
 /**
@@ -39,11 +34,6 @@ interface Lch {
  * The final number is a deterministic product heuristic, not a probability or a
  * clinically/artistically validated personal-color result.
  */
-export interface DressAnalysisContext {
-  dressColorName?: string | null;
-  bridePalette?: SwatchColor[];
-}
-
 // Product heuristics, not color-science standards. These weights should be
 // calibrated against real styling examples and user feedback over time.
 const SCORE_WEIGHTS_WITH_HAIR = {
@@ -60,10 +50,13 @@ const SCORE_WEIGHTS_WITHOUT_HAIR = {
   chroma: 0.14,
 } as const;
 
+// Batch-checked against representative skin/hair/dress combinations. This keeps the
+// advisory low-match tier reachable without conflating it with the separate washout rule.
+const LOW_MATCH_THRESHOLD = 66;
+
 export function analyzeDressWithSkinAndHair(
   dressHex: string,
   profile: YouCamProfile,
-  _context?: DressAnalysisContext,
 ): DressAnalysisResult {
   const skinLab = hexToLab(profile.skinHex);
   const hairLab = profile.hairHex ? hexToLab(profile.hairHex) : null;
@@ -74,9 +67,9 @@ export function analyzeDressWithSkinAndHair(
 
   const personalContrast = hairLab ? Math.abs(skinLab.l - hairLab.l) : null;
 
-  const hueScore = scoreUndertoneHueCompatibility(dress, profile.undertone);
-  const lightnessScore = scoreLightnessCompatibility(skin, dress);
-  const chromaScore = scoreChromaCompatibility(skin, dress, personalContrast);
+  const hueScore = scoreUndertoneHueCompatibility(dressLab, profile.undertone);
+  const lightnessScore = scoreLightnessCompatibility(Math.abs(skin.l - dress.l));
+  const chromaScore = scoreChromaCompatibility(skin.c, dress.c, personalContrast);
   const weights = hairLab ? SCORE_WEIGHTS_WITH_HAIR : SCORE_WEIGHTS_WITHOUT_HAIR;
 
   const rawScore =
@@ -84,7 +77,7 @@ export function analyzeDressWithSkinAndHair(
     lightnessScore * weights.lightness +
     chromaScore * weights.chroma;
 
-  const washout = isWashoutRisk(skin, dress);
+  const washout = isWashoutRisk(skin.l, skin.c, dress.l, dress.c);
   let finalScore = Math.round(clamp(rawScore, 0, 100));
 
   if (washout) finalScore = Math.min(finalScore, 54);
@@ -94,14 +87,14 @@ export function analyzeDressWithSkinAndHair(
 
   if (washout) {
     matchTier = "washout-risk";
-    badgeLabel = "Less Recommended";
+    badgeLabel = "Washout Risk";
   } else if (finalScore >= 88) {
     matchTier = "perfect";
     badgeLabel = "Excellent Match";
   } else if (finalScore >= 74) {
     matchTier = "great";
     badgeLabel = "Strong Match";
-  } else if (finalScore < 60) {
+  } else if (finalScore < LOW_MATCH_THRESHOLD) {
     matchTier = "low-match";
     badgeLabel = "Less Recommended";
   }
@@ -119,7 +112,6 @@ export function analyzeDressWithSkinAndHair(
     badgeLabel,
     explanationTitle: isPositive ? "Why this shade works" : "What to consider",
     reasons: dedupeReasons(reasons).slice(0, 3),
-    contextSuggestions: [],
   };
 }
 
@@ -278,12 +270,7 @@ function buildConsiderationReasons(
 
 function toLch(lab: Lab): Lch {
   const c = Math.hypot(lab.a, lab.b);
-  const h = c < 2 ? 0 : normalizeHue((Math.atan2(lab.b, lab.a) * 180) / Math.PI);
-  return { l: lab.l, a: lab.a, b: lab.b, c, h };
-}
-
-function normalizeHue(h: number): number {
-  return ((h % 360) + 360) % 360;
+  return { l: lab.l, c };
 }
 
 
@@ -292,70 +279,45 @@ function normalizeHue(h: number): number {
  * Low-chroma colors are deliberately less dependent on hue because their hue is
  * unstable/perceptually weak near neutral.
  */
-function scoreUndertoneHueCompatibility(dress: Lch, undertone: Undertone): number {
-  // This mapping is a styling-product heuristic; unlike CIEDE2000, it is not a
-  // CIE/ISO color-science standard.
-  // Prefer a smooth Lab a/b warmth signal over hardcoded hue anchors. The sign
-  // captures warm-vs-cool direction while the magnitude controls how strongly
-  // the color leans that way. This avoids penalizing nearby hues just because
-  // they fall between arbitrary anchor angles.
-  if (dress.c < 8) return undertone === "neutral" ? 82 : 74;
-
-  const warmth = dress.b - dress.a * 0.3;
-  const magnitude = Math.min(1, Math.abs(warmth) / 35);
-
-  if (undertone === "warm") {
-    return clamp(warmth >= 0 ? 72 + magnitude * 28 : 72 - magnitude * 27, 45, 100);
-  }
-
-  if (undertone === "cool") {
-    return clamp(warmth <= 0 ? 72 + magnitude * 28 : 72 - magnitude * 27, 45, 100);
-  }
-
-  // Neutral undertones prefer balanced warmth, but the preference is deliberately
-  // gentle so neutral skin can still wear saturated warm/cool shades.
-  return clamp(92 - magnitude * 42, 50, 92);
+export function scoreUndertoneHueCompatibility(dressLab: Lab, undertone: Undertone): number {
+  // Reuse the bounded, diminishing-return palette heuristic so dress cards and the
+  // Event Summary cannot disagree because of separate warm/cool formulas. This mapping
+  // remains advisory product styling logic, not a CIE/ISO suitability standard.
+  const chroma = Math.hypot(dressLab.a, dressLab.b);
+  const lowChromaScore = undertone === "neutral" ? 82 : 74;
+  const directionScore = scoreLabForUndertone(dressLab, undertone); // bounded -50..50
+  const directionalScore = undertone === "neutral"
+    ? 78
+    : clamp(72.5 + directionScore * 0.55, 45, 100);
+  const hueConfidence = smoothstep(4, 12, chroma);
+  return lerp(lowChromaScore, directionalScore, hueConfidence);
 }
 
-function scoreLightnessCompatibility(skin: Lch, dress: Lch): number {
-  const deltaL = Math.abs(skin.l - dress.l);
-  const dressIsVeryLight = dress.l >= 88 && dress.c < 14;
-  const dressIsVeryDark = dress.l <= 18 && dress.c < 18;
-
-  if (dressIsVeryLight && skin.l >= 72) return 52;
-  if (dressIsVeryDark && skin.l <= 28) return 58;
-
-  // A moderate-to-clear separation is generally safer than near-identical lightness.
-  if (deltaL < 7) return 48;
-  if (deltaL < 14) return 62;
-  if (deltaL < 24) return 80;
-  if (deltaL < 38) return 94;
-  return 88;
+export function scoreLightnessCompatibility(deltaL: number): number {
+  // Smoothly rewards visible lightness separation without jumps at arbitrary edges.
+  const separation = Math.max(0, deltaL);
+  return clamp(48 + 46 * (1 - Math.exp(-separation / 12)), 48, 94);
 }
 
-function scoreChromaCompatibility(skin: Lch, dress: Lch, personalContrast: number | null): number {
+export function scoreChromaCompatibility(skinChroma: number, dressChroma: number, personalContrast: number | null): number {
   // Anchor the desired dress intensity to actual skin chroma. Hair/skin L*
-  // contrast only adjusts that target when hair data genuinely exists.
+  // contrast adjusts that target smoothly when hair data genuinely exists.
   const contrastAdjustment = personalContrast == null
     ? 12
-    : personalContrast < 18
-      ? 8
-      : personalContrast > 38
-        ? 30
-        : 19;
-  const targetDressChroma = skin.c + contrastAdjustment;
-  const distanceFromTarget = Math.abs(dress.c - targetDressChroma);
+    : lerp(8, 30, smoothstep(10, 45, personalContrast));
+  const targetDressChroma = Math.max(0, skinChroma) + contrastAdjustment;
+  const distanceFromTarget = Math.abs(Math.max(0, dressChroma) - targetDressChroma);
 
   // The no-hair path is deliberately broad: it can compare skin and dress
   // intensity, but it must not imply knowledge of the person's feature contrast.
-  const penaltyRate = personalContrast == null ? 0.55 : 0.8;
-  return clamp(94 - distanceFromTarget * penaltyRate, 52, 94);
+  const falloff = personalContrast == null ? 55 : 40;
+  return 52 + 42 * Math.exp(-distanceFromTarget / falloff);
 }
 
-function isWashoutRisk(skin: Lch, dress: Lch): boolean {
-  const deltaL = Math.abs(skin.l - dress.l);
-  const chromaDifference = Math.abs(skin.c - dress.c);
-  const lowDressChroma = dress.c < 16;
+export function isWashoutRisk(skinL: number, skinChroma: number, dressL: number, dressChroma: number): boolean {
+  const deltaL = Math.abs(skinL - dressL);
+  const chromaDifference = Math.abs(skinChroma - dressChroma);
+  const lowDressChroma = dressChroma < 16;
 
   // White/cream/beige should only be called washout when they are genuinely close
   // to the complexion. A saturated color with similar L* is not the same situation.
@@ -364,6 +326,15 @@ function isWashoutRisk(skin: Lch, dress: Lch): boolean {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function lerp(start: number, end: number, amount: number): number {
+  return start + (end - start) * amount;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function dedupeReasons(reasons: string[]): string[] {

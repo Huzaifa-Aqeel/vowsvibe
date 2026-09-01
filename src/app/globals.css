@@ -257,6 +257,15 @@ body {
 
 .dress-analysis-card__back {
   transform: rotateY(180deg);
+  pointer-events: none;
+}
+
+.dress-analysis-card__inner.is-flipped .dress-analysis-card__front {
+  pointer-events: none;
+}
+
+.dress-analysis-card__inner.is-flipped .dress-analysis-card__back {
+  pointer-events: auto;
 }
 
 /* On phones the thumbnail stays in its grid slot while the analysis becomes a

@@ -9,16 +9,18 @@ import { AuthSplitLayout } from "@/components/AuthSplitLayout";
 import EventSummary from "@/components/EventSummary";
 import { DressDropzone } from "@/components/DressDropzone";
 import { PhotoFlipCard } from "@/components/PhotoFlipCard";
+import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import { PublicLineupBoard } from "@/components/PublicLineupBoard";
 import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
-import { type Undertone } from "@/lib/color/undertone";
+import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
 import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
 import {
   classifyBridalPaletteBadge,
   type BridalPaletteBadge,
 } from "@/lib/color/palette-matching";
 import type { DressColorMeta } from "@/components/DressDropzone";
+import { uniqueDressesByUrl } from "@/lib/dresses";
 
 type Step = "loading" | "name" | "studio" | "processing" | "preview" | "confirmed";
 
@@ -62,6 +64,17 @@ function requestedView(): "studio" | "lineup" | null {
 function stepForStatus(status: string): Step {
   if (status !== "confirmed") return "studio";
   return requestedView() === "studio" ? "studio" : "confirmed";
+}
+
+function currentUndertone(skinHex: string | null | undefined, stored: Undertone | null | undefined) {
+  if (!skinHex) return stored ?? null;
+  try {
+    // Recompute from the saved source HEX so profiles created before a heuristic
+    // calibration use the current logic without requiring the selfie to be stored.
+    return classifySkinTone(skinHex).undertone;
+  } catch {
+    return stored ?? null;
+  }
 }
 
 export function BridesmaidFlow({ event }: { event: EventRow }) {
@@ -139,7 +152,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
           setRenderUrl(participant.vto_render_url);
           setHistory(participant.vto_history ?? []);
           setActiveTaskId(participant.vto_task_id ?? null);
-          setUndertone(participant.skin_undertone ?? null);
+          setUndertone(currentUndertone(participant.skin_tone_hex, participant.skin_undertone));
           setSkinToneHex(participant.skin_tone_hex ?? null);
           setHairToneHex(participant.hair_tone_hex ?? null);
           setIsConfirmed(participant.status === "confirmed");
@@ -202,17 +215,14 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     }
     const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
     const next: Record<string, DressAnalysisResult> = {};
-    const allDresses = [
+    const allDresses = uniqueDressesByUrl([
       ...(event.example_dresses ?? []).map((d) => ({ url: d.url, primaryHex: d.primaryHex ?? null, colorName: d.colorName ?? null })),
       ...customDresses.map((d) => ({ url: d.url, primaryHex: d.primaryHex, colorName: d.colorName })),
-    ];
+    ]);
     for (const d of allDresses) {
       if (!d.primaryHex) continue;
       try {
-        next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile, {
-          dressColorName: d.colorName,
-          bridePalette: event.color_palette ?? [],
-        });
+        next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile);
       } catch (err) {
         console.error("Dress compatibility scoring failed for", d.url, err);
       }
@@ -244,7 +254,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       setRenderUrl(participant.vto_render_url ?? null);
       setHistory(participant.vto_history ?? []);
       setActiveTaskId(participant.vto_task_id ?? null);
-      setUndertone(participant.skin_undertone ?? null);
+      setUndertone(currentUndertone(participant.skin_tone_hex, participant.skin_undertone));
       setSkinToneHex(participant.skin_tone_hex ?? null);
       setHairToneHex(participant.hair_tone_hex ?? null);
       setIsConfirmed(participant.status === "confirmed");
@@ -290,7 +300,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // Called once the selfie side of the flip card finishes analysis (see SelfieUpload /
   // PhotoFlipCard). The selfie itself is never sent here — only the derived tone, which the
   // skin-tone route already persisted server-side.
-  function handleSkinToneResult(result: { hex: string; undertone: Undertone; depth: string | null; hairHex?: string | null }) {
+  function handleSkinToneResult(result: { hex: string; undertone: Undertone; hairHex?: string | null }) {
     setUndertone(result.undertone);
     setSkinToneHex(result.hex);
     setHairToneHex(result.hairHex ?? null);
@@ -310,7 +320,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     }
   }
 
-  const sortedDresses = [
+  const sortedDresses = uniqueDressesByUrl([
     ...(event.example_dresses ?? []).map((d, index) => ({
       url: d.url,
       label: d.label,
@@ -325,7 +335,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       colorName: d.colorName,
             index: (event.example_dresses?.length ?? 0) + index,
     })),
-  ].sort((a, b) => {
+  ]).sort((a, b) => {
     const aScore = dressBadges[a.url]?.score;
     const bScore = dressBadges[b.url]?.score;
     if (aScore == null && bScore == null) return a.index - b.index;
@@ -355,10 +365,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
     setDressBadges((current) => ({
       ...current,
-      [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile, {
-        dressColorName: dressMeta?.colorName ?? null,
-        bridePalette: event.color_palette ?? [],
-      }),
+      [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile),
     }));
   }
     setStep("processing");
@@ -522,6 +529,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       {/* ── STEP 2: PRIVATE FITTING STUDIO ── */}
       {step === "studio" && (
         <section className="space-y-7">
+          {session && <ColorGuidanceDisclaimer participantId={session.participantId} />}
           <EventSummary event={event} undertone={undertone} />
           <div className="mb-2 flex flex-wrap items-end justify-between gap-3 border-b border-stone-200/60 pb-5">
             <div>

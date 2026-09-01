@@ -42,7 +42,7 @@ async function authorize(participantId: string, token: string | null) {
  * face-region heuristic before analysis: we read the multipart bytes into memory, hand them
  * straight to YouCam, and let the buffer go once this request ends. It is never written to
  * Supabase Storage and never referenced by path anywhere in the DB — only the derived
- * skin_tone_hex / undertone / depth get persisted, on the participant row itself.
+ * skin_tone_hex and undertone get persisted on the participant row itself.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
   const { participantId } = await params;
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
       return NextResponse.json({ status: "error", error: result.errorMessage ?? "Analysis failed" }, { status: 200 });
     }
 
-    const { undertone, depth } = classifySkinTone(result.colors.skinColor);
+    const { undertone } = classifySkinTone(result.colors.skinColor);
     // hairColor comes back from the SAME skin-tone-analysis task/response as skinColor — no
     // second YouCam call. Nullable: the model may not have found hair in the frame.
     const hairHex = result.colors.hairColor ?? null;
@@ -91,7 +91,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
       .update({
         skin_tone_hex: result.colors.skinColor,
         skin_undertone: undertone,
-        skin_depth: depth,
         hair_tone_hex: hairHex,
         hair_color_name: hairColorName,
       })
@@ -101,7 +100,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
       status: "success",
       skin_tone_hex: result.colors.skinColor,
       undertone,
-      depth,
       hair_tone_hex: hairHex,
       hair_color_name: hairColorName,
     });

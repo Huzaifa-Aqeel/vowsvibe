@@ -22,7 +22,6 @@ type ParticipantDbRow = {
   lineup_hidden: boolean;
   skin_tone_hex: string | null;
   skin_undertone: ParticipantRow["skin_undertone"];
-  skin_depth: ParticipantRow["skin_depth"];
   hair_tone_hex: string | null;
   hair_color_name: string | null;
 };
@@ -66,7 +65,6 @@ export function hydrateParticipant(row: ParticipantDbRow, attempts: VtoAttemptRo
     lineup_hidden: Boolean(row.lineup_hidden ?? false),
     skin_tone_hex: row.skin_tone_hex ?? null,
     skin_undertone: row.skin_undertone ?? null,
-    skin_depth: row.skin_depth ?? null,
     hair_tone_hex: row.hair_tone_hex ?? null,
     hair_color_name: row.hair_color_name ?? null,
     selected_dress_url: publicStorageUrl(current?.dress_path),

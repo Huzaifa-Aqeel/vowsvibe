@@ -36,7 +36,6 @@ export interface ParticipantRow {
   lineup_x: number | null; lineup_y: number | null; lineup_z_index: number; lineup_hidden: boolean;
   created_at: string; updated_at: string;
   skin_tone_hex: string | null; skin_undertone: "warm" | "cool" | "neutral" | null;
-  skin_depth: "fair" | "light" | "medium" | "deep" | null;
   /** From the same YouCam skin-tone-analysis task as skin_tone_hex — read together in one
    *  call, never a separate request. Used alongside skin tone for dress-rail scoring
    *  (personal contrast between skin and hair — see analyzeDressWithSkinAndHair). */

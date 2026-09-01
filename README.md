@@ -1,171 +1,184 @@
 # Vows & Vibe
 
-A collaborative bridal-party styling workspace with AI virtual try-on, skin-tone-based dress analysis, and a shared interactive 2D lineup canvas.
+**See it. Style it. Love it.**
 
-Bridal-party styling is often a messy combination of group chats, inspiration boards, and disconnected screenshots. Vows & Vibe brings that process into one workspace: the bride defines the styling brief, bridesmaids try dresses virtually, and confirmed looks come together in a shared interactive lineup.
+Vows & Vibe is a collaborative bridal-party styling app that helps a bride and her bridal party try on dresses virtually, coordinate colors, share feedback, and see confirmed looks together before the wedding.
 
-## Core Features
+**Live Demo:** https://vowsvibe-one.vercel.app
 
-### Bride Flow
+## What It Does
 
-The bride signs in with Google, creates an event, and defines the dress length, fabric, color palette, and example dresses. She can upload a full-body photo and selfie for analysis.
+- Virtual dress try-on with Perfect Corp YouCam
+- Guided skin-tone selfie capture with Camera Kit
+- Color-aware dress analysis and palette matching
+- Invite-based bridesmaid flow with no account required
+- Shared interactive 2D bridal-party lineup
+- Participant-to-participant styling suggestions
+- AI-generated venue group previews with Qwen Image
+- PNG export and saved lineup state
 
-The app uses YouCam Skin Tone Analysis to obtain skin and hair color HEX values and YouCam AI Clothes Changer to generate multiple virtual try-on (VTO) attempts. VTO history is normalized in the database through the `vto_attempts` table, allowing users to switch between previous renders without losing state.
+## How It Works
 
-### Bridesmaid Invite Flow
+### Bride & Bridesmaids
 
-Bridesmaids join through an invite link and do not need to create accounts. A server-stored session token allows them to log in and resume their progress on the same device.
+Both the bride and bridesmaids can upload a full-body photo, take a guided skin-tone selfie, try dresses virtually, review color-analysis guidance, generate multiple VTO attempts, and confirm a final look.
 
-A bridesmaid can upload a full-body photo and selfie for analysis. The app uses YouCam Skin Tone Analysis to obtain skin and hair color HEX values and YouCam AI Clothes Changer to generate multiple VTO attempts.
+### Bride-Only Features
 
-### Collaborative 2D Lineup Canvas
+- Signs in with Google
+- Creates and manages the event
+- Sets the styling brief: dress length, fabric, color palette, and example dresses
+- Invites bridesmaids
+- Arranges confirmed looks in the shared lineup studio
+- Filters the lineup by Palette Match, Family Match, and Other
+- Saves and exports the lineup
+- Generates and saves AI group previews
 
-- **Canvas Controls:** Participants can be dragged and repositioned.
-- **Responsive Layout:** Positions are stored as normalized participant metadata so the lineup remains resilient across screen sizes.
-- **Realtime Collaboration:** Saved lineup positions are propagated through **Supabase Postgres Changes**, allowing the bridal party to see lineup updates in real time.
-- **Bride Export:** Only the bride can download the current canvas composition as a PNG.
-- **Suggestions:** Each participant can turn **Suggestions ON or OFF**. When enabled, selecting another participant in the lineup allows the sender to leave a suggestion for that person.
+### Bridesmaid-Only Features
 
-### Color Harmony Filtering
+- Joins through an invite link without creating an account
+- Sends styling suggestions to other participants
 
-The bride can explore the lineup using three mutually exclusive color-harmony modes:
+## Key Features
 
-- **Palette Match:** Uses normalized palette-color names to identify dresses that exactly match one of the bride's selected palette colors. Exact matches always take priority and cannot also be classified as Family Matches.
-- **Family Match:** For dresses without an exact palette match, the dress HEX is converted to **CIE Lab** and assigned to a broad color family. It is compared only with palette swatches in that same family. **CIEDE2000 (ΔE00)** selects the single perceptually closest palette swatch. The dress qualifies as a Family Match only when that distance is within the configured family-match threshold.
-- **Other:** Contains dresses that qualify for neither Palette Match nor Family Match. Other is a global category rather than being associated with individual palette swatches.
+### Virtual Try-On & Skin-Tone Analysis
 
-Each dress belongs to exactly one color-harmony classification at a time.
+Users upload a full-body photo for dress visualization and a separate guided selfie for personalized color analysis.
 
-### Color Science & Compatibility Logic
+Perfect Corp's Clothes Virtual Try-On API (`cloth-v4`) generates dress previews, while the YouCam Skin Tone Analysis flow provides skin and hair-color hex values, used by the app's styling guidance.
 
-Vows & Vibe converts dress, skin, and available hair colors into **CIE Lab** for color analysis.
+VTO attempts are stored through the `vto_attempts` model so users can revisit previous renders without losing progress. The guided selfie is analyzed without being stored; only the derived color-analysis values are saved.
 
-**CIEDE2000 (ΔE00)** is used where perceptual color difference is the relevant measurement, including:
+### Bride Compose Studio
 
-- finding the closest same-family palette swatch
-- comparing a newly selected dress with confirmed bridesmaid dresses
-- identifying visually similar or distinct dress colors
-- supporting contextual styling explanations
+Confirmed participants appear in a shared Fabric.js canvas where the bride can arrange the group visually.
 
-CIEDE2000 measures perceptual color difference; it is not treated directly as a measure of how flattering a dress is.
+- Drag and reposition participants
+- Filter the lineup by color relationship
+- Save the lineup, which is then shown to bridesmaids via Supabase Realtime events
+- Export the bride's current composition as PNG
+- Share participant-to-participant suggestions
 
-Dress compatibility is based primarily on independent styling signals:
+### Color Coordination
 
-- **Undertone / Hue Relationship:** Evaluates how the dress color direction relates to the analyzed warm, cool, or neutral undertone.
-- **Lightness Relationship:** Measures the separation between dress and skin lightness and helps identify low-contrast combinations.
-- **Chroma / Personal Contrast:** Evaluates dress color intensity relative to the wearer's complexion and, when available, natural skin-to-hair contrast.
+Each confirmed dress belongs to one of three mutually exclusive groups:
 
-When hair-color information is unavailable, the system does not invent a personal-contrast value; scoring relies on the available signals instead.
+- **Palette Match** — exact normalized match to one of the bride's selected palette colors
+- **Family Match** — a non-exact shade in the same broad color family that falls within the configured perceptual-distance threshold
+- **Other** — includes two subcategories:
+  - **Related Shade:** a color from the same family as the palette, but too perceptually different to qualify as a Family Match
+  - **Different Family:** a custom color that falls outside the bride's selected palette families
 
-A separate **low-separation / washout safeguard** detects cases where a low-chroma dress is also very close to the complexion in lightness and chroma. Low chroma alone is not considered a washout risk.
+Dress colors are converted to **CIE Lab**, and **CIEDE2000 (ΔE00)** is used when perceptual color difference is the relevant measurement, such as finding the nearest palette shade.
 
-**Note:** The resulting score is presented as a **compatibility index and styling guide**, not a probability or scientifically definitive recommendation. Lighting, camera accuracy, fabric characteristics, surroundings, personal preference, wedding palette, and styling choices can all influence the final appearance.
+Dress compatibility is calculated separately using undertone, lightness, chroma, and available skin-to-hair contrast signals. The result is presented as styling guidance rather than a scientific or definitive recommendation.
+
+### AI Group Preview
+
+The bride can upload a venue image, arrange confirmed participant cutouts, choose finishing presets, and generate a polished wedding-party preview with Alibaba Cloud Model Studio's Qwen Image API.
+
+Generated previews can be downloaded and optionally saved for the bridal party's public lineup view.
+
+## Workflow
+
+```mermaid
+flowchart TD
+    A[Bride] --> B[Sign in with Google]
+    B --> C[Create event + styling brief]
+    C --> D[Upload full-body photo]
+    D --> E[Guided skin-tone selfie]
+    E --> F[Select/upload dresses]
+    F --> G[YouCam VTO]
+    G --> H[Confirm look]
+    H --> I[Shared event]
+
+    I --> J[Invite link]
+    J --> K[Bridesmaid flow]
+    K --> K1[Upload photo]
+    K1 --> K2[Choose dress]
+    K2 --> K3[YouCam VTO]
+    K3 --> K4[Confirm look]
+
+    I --> L[Bride lineup]
+
+    L --> M[Shared 2D lineup]
+    K4 --> M
+
+    M --> N[Arrange / Filter]
+    M --> O[Suggestions]
+    N --> P[Group Preview]
+```
 
 ## Tech Stack
 
-- **Framework:** Next.js 14, React 18, TypeScript
-- **Backend / Auth / Database:** Supabase (Postgres, Auth, Storage, Realtime)
-- **AI Virtual Try-On:** Perfect Corp YouCam AI
+- **Framework:** Next.js 16, React 18, TypeScript
+- **Backend / Auth / Database:** Supabase — Postgres, Auth, Storage, Realtime
+- **Virtual Try-On / Skin Analysis:** Perfect Corp YouCam APIs
+- **AI Group Preview:** Alibaba Cloud Model Studio / Qwen Image
 - **Canvas:** Fabric.js 6.7.1
-- **Image Processing:** `@imgly/background-removal-node`
+- **Background Removal:** `@imgly/background-removal-node`
 - **Validation:** Zod
 
-## Canonical Workflow
-
-```text
-Bride
-  │
-  ├─ Sign in with Google
-  ├─ Create event
-  ├─ Set styling requirements + moodboard
-  ├─ Upload body photo
-  ├─ Select/upload dresses
-  ├─ YouCam VTO
-  └─ Confirm look
-           │
-           ▼
-       Shared event
-           │
-           ├───────────── Invite link ─────────────┐
-           │                                       │
-           ▼                                       ▼
-     Bride lineup                           Bridesmaid flow
-           │                                       │
-           │                               upload photo
-           │                               choose dress
-           │                               YouCam VTO
-           │                               confirm look
-           │                                       │
-           └───────────────┬───────────────────────┘
-                           ▼
-                   Shared 2D lineup
-                           │
-                 ┌─────────┴─────────┐
-                 │                   │
-                 ▼                   ▼
-            Save/Filter lineup    Suggestions ON/OFF
-                                      │
-                                      ▼
-                              participant → participant
-```
-
-## Local Setup
+## Local Development
 
 ### Prerequisites
 
-- Node.js 18+
-- A Supabase project
-- A Perfect Corp / YouCam API key
-- Google OAuth Client (for Supabase Auth)
+- Node.js 22
+- Supabase project
+- Perfect Corp / YouCam API key
+- Groq API key
+- Alibaba Cloud Model Studio workspace and API key for group previews
+- Google OAuth client for Supabase Auth
 
-### 1. Installation
+### 1. Install
 
 ```bash
-git clone <your-repository-url>
+git clone
 cd vows-and-vibe
 npm install
 ```
 
-### 2. Environment Variables
+### 2. Configure Environment Variables
 
-Create a `.env.local` file based on `.env.example`.
+Create `.env.local` from `.env.example` and fill in your own values.
 
-### 3. Database & Storage Configuration
+### 3. Configure Supabase
 
-1. In Supabase, create a public Storage bucket named `vto-renders`.
-2. Run the `supabase/schema.sql` script in the Supabase SQL Editor. The schema is idempotent.
-3. Enable Google OAuth in Supabase Auth and set the callback URL to `http://localhost:3000/auth/callback`.
+1. Run `supabase/schema.sql` in the Supabase SQL Editor.
+2. Confirm the required `vto-renders` Storage bucket exists.
+3. Enable Google OAuth in Supabase Auth.
+4. Add this local callback URL:
 
-### 4. Run the App
+```text
+http://localhost:3000/auth/callback
+```
+
+### 4. Run
 
 ```bash
-npm run build
 npm run dev
 ```
 
-## Deploy to Vercel
+Open `http://localhost:3000`.
 
-1. Import the repository into Vercel and keep the framework preset set to **Next.js**.
-2. Set the project Node.js version to **22.x**.
-3. Copy every required value from `.env.example` into Vercel Environment Variables for
-   Production and Preview. Set `NEXT_PUBLIC_SITE_URL` to the deployed HTTPS origin.
-4. Keep Fluid Compute enabled. It is configured in `vercel.json` and is enabled by default
-   for new Vercel projects. Confirming a look runs the native IMG.LY/ONNX cutout model.
-5. The two confirmation routes allow up to 300 seconds so a cold
-   cutout-model start can finish reliably.
-6. In Supabase Auth, add `https://YOUR_DOMAIN/auth/callback` to the allowed redirect URLs
-   and set the Site URL to the deployed origin.
-7. Run `supabase/schema.sql` against the production Supabase project, then deploy.
+To verify a production build locally:
 
-Large camera files are resized in the browser before upload because Vercel Functions have
-a fixed 4.5 MB request-body limit. Server routes enforce a matching 4 MB file ceiling.
+```bash
+npm run build
+```
+
+## Live Deployment
+
+The deployed app is available on Vercel:
+
+**https://vowsvibe-one.vercel.app**
 
 ## Repository Structure
 
 ```text
 src/
 ├── app/
-│   ├── api/               # VTO, Events, Participants, Upload endpoints
+│   ├── api/               # VTO, events, participants, upload endpoints
 │   ├── auth/              # OAuth callback
 │   ├── dashboard/         # Bride event dashboard
 │   ├── events/            # Event dashboard, style, lineup
@@ -176,9 +189,10 @@ src/
 │   ├── BridesmaidFlow.tsx
 │   ├── EventForm.tsx
 │   ├── LineupCanvas.tsx    # Fabric.js bridal-party canvas
+│   ├── SelfieUpload.tsx    # Guided capture + upload fallback
 │   └── SuggestionTools.tsx
 ├── lib/
-│   ├── color/             # Undertone & dress compatibility logic
+│   ├── color/             # Undertone and dress compatibility logic
 │   ├── cutout/            # Image background removal
 │   ├── storage/           # Supabase Storage helpers
 │   ├── supabase/          # Browser/server clients
@@ -186,8 +200,10 @@ src/
 └── proxy.ts               # Supabase auth session refresh
 ```
 
-**Disclaimer:** The color analysis is intended as guidance rather than a strict rule. It provides a mathematical way to compare colors using undertone, lightness, contrast, and perceptual color difference, but the final choice always remains with the bride and the person wearing the dress.
+## Note on Color Analysis
 
-## License
+Color analysis is intended as guidance, not a strict rule. Lighting, camera accuracy, fabric, surroundings, personal preference, and styling choices can all affect how a color appears in practice.
 
-MIT License.
+## Team / Contributors
+
+I built this project solo.

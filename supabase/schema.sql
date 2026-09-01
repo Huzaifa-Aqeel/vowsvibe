@@ -73,7 +73,6 @@ create table if not exists participants (
   -- color palette just stays in its original order).
   skin_tone_hex text,
   skin_undertone text check (skin_undertone in ('warm', 'cool', 'neutral')),
-  skin_depth text check (skin_depth in ('fair', 'light', 'medium', 'deep')),
   -- Read from the SAME YouCam skin-tone-analysis task/response as skin_tone_hex — never a
   -- separate call. Nullable: the model may not find hair in a given selfie frame. Used
   -- alongside skin_tone_hex for dress-rail scoring (see analyzeDressWithSkinAndHair).
@@ -96,7 +95,9 @@ alter table participants add column if not exists confirmed_look_id uuid;
 alter table participants add column if not exists status participant_status not null default 'pending';
 alter table participants add column if not exists skin_tone_hex text;
 alter table participants add column if not exists skin_undertone text check (skin_undertone in ('warm', 'cool', 'neutral'));
-alter table participants add column if not exists skin_depth text check (skin_depth in ('fair', 'light', 'medium', 'deep'));
+-- Skin depth was a derived, unused value. Keep skin_tone_hex as the source color and
+-- remove the redundant legacy column from existing installations.
+alter table participants drop column if exists skin_depth;
 alter table participants add column if not exists hair_tone_hex text;
 alter table participants add column if not exists hair_color_name text;
 alter table participants add column if not exists lineup_x numeric(8,6) default 0.5;

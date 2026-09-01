@@ -22,10 +22,18 @@ export default function EventSummary({ event, undertone }: EventSummaryProps) {
   const length = event.dress_length || "Floor-Length";
   const fabric = event.fabric_type || "Stretch Satin";
   const rawPaletteItems: ColorPaletteItem[] = event.color_palette ?? [];
-  const paletteItems = undertone ? rankPaletteForUndertone(rawPaletteItems, undertone) : rawPaletteItems;
+  let paletteItems = [...rawPaletteItems];
+  let scores: number[] = [];
+  try {
+    paletteItems = rankPaletteForUndertone(rawPaletteItems, undertone ?? null);
+    scores = undertone ? paletteItems.map((color) => scoreSwatchForUndertone(color.hex, undertone)) : [];
+  } catch (error) {
+    // Strict color validation belongs in the shared utility. A malformed legacy swatch,
+    // however, should leave the advisory palette in its original order—not crash a studio.
+    console.error("Could not rank event palette", error);
+  }
   // Badge only the swatches that score meaningfully above the palette's own average — on a
   // palette that's already all-warm or all-cool, nothing should stand out as "extra" suited.
-  const scores = undertone ? paletteItems.map((c) => scoreSwatchForUndertone(c.hex, undertone)) : [];
   const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
   const spread = scores.length ? Math.max(...scores) - Math.min(...scores) : 0;
 
@@ -114,11 +122,16 @@ export default function EventSummary({ event, undertone }: EventSummaryProps) {
                           style={{ backgroundColor: color.hex }}
                         />
                         <span>{color.name}</span>
-                        {suitsHer && <span className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Suits you</span>}
+                        {suitsHer && <span className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Suggested match</span>}
                       </div>
                     );
                   })}
                 </div>
+                {undertone && scores.length > 0 && (
+                  <p className="mt-1.5 text-[9px] leading-4 text-stone-400">
+                    Advisory styling order based on your camera-derived undertone.
+                  </p>
+                )}
               </div>
             </div>
 

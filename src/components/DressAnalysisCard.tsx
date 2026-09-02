@@ -35,15 +35,20 @@ export function DressAnalysisCard({
   useEffect(() => {
     if (!analysisOpen) return;
 
-    const previousOverflow = document.body.style.overflow;
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    document.body.style.overflow = "hidden";
+    const mobileDialog = window.matchMedia("(max-width: 639px)").matches;
+    const previousOverflow = document.body.style.overflow;
+
+    // Only phones promote the flipped card to a full-viewport modal. Locking
+    // the page prevents background scroll bleed there, but desktop cards flip
+    // in place and should never stop the surrounding page from scrolling.
+    if (mobileDialog) document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      if (mobileDialog) document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus();
     };
   }, [analysisOpen]);

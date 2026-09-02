@@ -456,7 +456,7 @@ async function startLook(dressUrl: string) {
       {looks.length > (state === "preview" ? 1 : 0) && (
         <div className="mt-10 border-t border-stone-200/60 pt-6">
           <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-stone-400">
-            Your lookbook · {looks.length} previews
+            Your lookbook
           </p>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {looks.map(

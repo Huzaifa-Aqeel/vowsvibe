@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { App as NativeApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { Crown, Loader2 } from "lucide-react";
 import { clientFetch } from "@/lib/platform/runtime";
 import { readApiJson } from "./platform/api";
@@ -18,13 +20,20 @@ type BillingStatus = {
 export function ProStatusCard({ open }: { open: () => void }) {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [error, setError] = useState(false);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
+    setError(false);
     void clientFetch("/api/mobile/billing", { cache: "no-store", signal: controller.signal })
       .then(readApiJson<BillingStatus>)
       .then((value) => { if (!controller.signal.aborted) setStatus(value); })
       .catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
+  }, [revision]);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listener = NativeApp.addListener("appStateChange", ({ isActive }) => { if (isActive) setRevision((value) => value + 1); });
+    return () => { void listener.then((handle) => handle.remove()); };
   }, []);
 
   const detail = status?.active

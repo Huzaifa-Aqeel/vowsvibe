@@ -48,11 +48,15 @@ export function DemoApp() {
   }, [navigation]);
   const state = readDemoState();
   const event = state.event;
+  const guestEntry = path === "/invite/demo";
+  const canGoBack = !guestEntry && navigation.canGoBack();
   const button = (label: string, next: string) => <button type="button" onClick={() => navigation.push(next)} className="min-h-12 w-full rounded-full border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-800">{label}</button>;
 
   return <NavigationContext.Provider value={navigation}><main className={`mobile-app ${studio ? "mobile-app--studio" : ""}`}>
-    <header className="mobile-header">{path !== "/" ? <button type="button" aria-label="Back" onClick={navigation.back} className="mobile-icon-button"><ArrowLeft size={20}/></button> : <Heart size={23} className="text-rose-800"/>}<button type="button" aria-label="Go to home" onClick={() => navigation.push("/")} className="flex-1 text-left"><p className="font-serif text-xl">Vows & Vibe</p><p className="text-[10px] uppercase tracking-[.18em] text-stone-500">See it. Style it. Love it.</p></button><span className="rounded-full bg-rose-50 px-3 py-1.5 text-[10px] font-semibold text-rose-800">Mobile preview</span></header>
-    <div className="mobile-demo-banner">Offline demo · Local data only · AI and tone results are illustrated test fixtures.</div>
+    <header className="mobile-header">{canGoBack ? <button type="button" aria-label="Back" onClick={navigation.back} className="mobile-icon-button"><ArrowLeft size={20}/></button> : <Heart size={23} className="text-rose-800"/>}{guestEntry
+      ? <div className="min-w-0 flex-1"><p className="font-serif text-xl">Vows &amp; Vibe</p><p className="text-[10px] uppercase tracking-[.18em] text-stone-500">Your private fitting room</p></div>
+      : <button type="button" aria-label="Go to home" onClick={() => navigation.push("/")} className="flex-1 text-left"><p className="font-serif text-xl">Vows & Vibe</p><p className="text-[10px] uppercase tracking-[.18em] text-stone-500">See it. Style it. Love it.</p></button>}{path !== "/upgrade" && <span className="rounded-full bg-rose-50 px-3 py-1.5 text-[10px] font-semibold text-rose-800">Mobile preview</span>}</header>
+    {path !== "/upgrade" && <div className="mobile-demo-banner">Offline demo · Local data only · AI and tone results are illustrated test fixtures.</div>}
     {path === "/" && <AuthSplitLayout eyebrow="For the bride"><BrideLoginPanel action={button("Continue as demo bride", "/dashboard")}/></AuthSplitLayout>}
     {path === "/login" && <AuthSplitLayout eyebrow="For the bride"><BrideLoginPanel action={button("Continue as demo bride", "/dashboard")}/></AuthSplitLayout>}
     {path === "/dashboard" && <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Your events</h1><div className="mt-4 rounded-3xl border border-stone-200 bg-white p-5"><h2 className="font-serif text-2xl">{event.title}</h2><p className="my-3 text-xs text-stone-500">{event.event_date}</p>{button("Open wedding event", `/events/${event.id}`)}</div></section>}

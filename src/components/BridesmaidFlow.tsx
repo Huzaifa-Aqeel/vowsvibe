@@ -20,6 +20,7 @@ import { GuidePopover, GuideRow } from "@/components/GuidePopover";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
 import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
 import { analyzeDressForSkin, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
+import { classifyBridalPaletteBadge } from "@/lib/color/palette-matching";
 import type { DressColorMeta } from "@/components/DressDropzone";
 import { uniqueDressesByUrl } from "@/lib/dresses";
 
@@ -397,7 +398,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
         if (pollGenRef.current !== myGen) return;
         if (pollLifetime.aborted) {
           setError("This render is taking longer than expected. Please try again.");
-          setStep("studio");
           return;
         }
         pollAttempts += 1;
@@ -411,7 +411,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
           if (!statusRes.ok) {
             setError(statusJson.error ?? "Render failed — please try again.");
-            setStep("studio");
             return;
           }
 
@@ -425,7 +424,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
           if (statusJson.status === "error" || pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
             setError(statusJson.error ?? "This render is taking longer than expected. Please try again.");
-            setStep("studio");
             return;
           }
 
@@ -434,7 +432,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
           if (pollGenRef.current !== myGen) return;
           if (pollAttempts >= MAX_POLL_ATTEMPTS || pollLifetime.aborted) {
             setError("This render is taking longer than expected. Please try again.");
-            setStep("studio");
             return;
           }
           pollRef.current = setTimeout(poll, 2500);
@@ -447,8 +444,14 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       setError(err instanceof DOMException && err.name === "TimeoutError"
         ? "YouCam did not respond in time. Please try again."
         : err instanceof Error ? err.message : "Something went wrong");
-      setStep("studio");
     }
+  }
+
+  function leaveVtoError() {
+    pollGenRef.current += 1;
+    if (pollRef.current) clearTimeout(pollRef.current);
+    setError(null);
+    setStep("studio");
   }
 
   async function confirm() {
@@ -575,22 +578,17 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                   <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">02 · Dress rail</p>
                   <h3 className="mt-0.5 font-serif text-xl text-stone-900">Choose a dress to try</h3>
                 </div>
-                <GuidePopover title="How dress matching works" label="How dress matching works" align="right">
-                  <GuideRow dot="bg-emerald-400" label="Excellent / Strong Match">This shade's hue, lightness, and intensity work well with your undertone.</GuideRow>
-                  <GuideRow dot="bg-stone-300" label="Compatible">A fine option — just not one of the strongest matches for you.</GuideRow>
-                  <GuideRow dot="bg-amber-400" label="Less Recommended">The color relationship is weaker for your coloring — still wearable, just less flattering.</GuideRow>
-                  <GuideRow dot="bg-rose-400" label="Washout Risk">Very close to your own skin tone, so it may blend in rather than stand out.</GuideRow>
-                  <p className="pt-1 text-[11px] leading-5 text-stone-500">Dresses are sorted with your best matches first — tap any dress to see the full reasoning.</p>
-                  <p className="border-t border-stone-100 pt-2 text-[9px] font-bold uppercase tracking-wide text-stone-400">Coordinating with the bride&apos;s palette</p>
-                  <GuideRow dot="bg-emerald-400" label="Palette Match">Your dress name is an exact match to one of the bride&apos;s chosen colors.</GuideRow>
-                  <GuideRow dot="bg-rose-400" label="Family Match">A different name, but close enough in actual shade to look coordinated with one of her colors.</GuideRow>
-                  <GuideRow dot="bg-amber-400" label="Related shade">Same color family as one of her picks, but far off from her chosen palette.</GuideRow>
-                  <GuideRow dot="bg-stone-300" label="Different family">A color unrelated to anything in her palette.</GuideRow>
+                <GuidePopover title="How your dress fits the palette" label="How your dress fits the palette" align="right">
+                  <GuideRow dot="bg-rose-400" label="Family Match">Your dress is close to one of the bride&apos;s colors, so it should blend naturally with the group.</GuideRow>
+                  <GuideRow dot="bg-amber-400" label="Related shade">Your dress is in the same color family, but looks noticeably lighter, darker, or different. It still feels connected while standing out a little more.</GuideRow>
                 </GuidePopover>
               </div>
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
-                {sortedDresses.map((d) => (
-                  <div key={d.url} className={dressBadges[d.url] ? "" : "pt-5"}>
+                {sortedDresses.map((d) => {
+                  const paletteBadge = classifyBridalPaletteBadge(d.colorName, d.primaryHex, event.color_palette);
+                  const paletteCue = paletteBadge === "family" ? "Family Match" as const
+                    : paletteBadge === "same-family" ? "Related shade" as const : null;
+                  return <div key={d.url} className={dressBadges[d.url] ? "" : "pt-5"}>
                     {dressBadges[d.url] ? (
                       <DressAnalysisCard
                         url={d.url}
@@ -599,7 +597,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                         initialAnalysisOpen={newlyAnalyzedDressUrl === d.url}
                         onSelect={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
                         disabled={!photoUrl}
-                        actionLabel="Try this dress"
+                        actionLabel="Preview this dress"
+                        paletteCue={paletteCue}
                       />
                     ) : (
                       <button
@@ -610,11 +609,12 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={d.url} alt={d.label ?? "Dress"} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                        <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">Try this dress</span>
+                        {paletteCue && <span className={`absolute left-2 top-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${paletteCue === "Family Match" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{paletteCue}</span>}
+                        <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">Preview this dress</span>
                       </button>
                     )}
-                  </div>
-                ))}
+                  </div>;
+                })}
                 <div className="pt-5">
                   <DressDropzone
                     participantAuth={session ?? undefined}
@@ -682,9 +682,18 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
         <>
           <EventSummary event={event} undertone={undertone}/>
           <Card className="mx-auto mt-6 max-w-md border-stone-200 bg-white/80 text-center shadow-none p-8 rounded-2xl">
-            <Sparkles className="mx-auto mb-3 animate-pulse text-rose-500" size={28} />
-            <h2 className="mb-1 font-serif text-xl">Working our magic…</h2>
-            <p className="text-sm text-neutral-500">Your photo is private while our AI fits the selected dress. This usually takes a few seconds.</p>
+            {error ? <>
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-rose-700">Preview unavailable</p>
+              <h2 className="mt-2 font-serif text-xl">We couldn&apos;t create this preview</h2>
+              <p role="alert" className="mt-3 text-sm leading-6 text-stone-600">{error}</p>
+              <Button type="button" variant="outline" className="mt-6 w-full border-stone-200" onClick={leaveVtoError}>
+                <ArrowLeft size={15}/> Back to dresses
+              </Button>
+            </> : <>
+              <Sparkles className="mx-auto mb-3 animate-pulse text-rose-500" size={28} />
+              <h2 className="mb-1 font-serif text-xl">Working our magic…</h2>
+              <p className="text-sm text-neutral-500">Your photo is private while our AI fits the selected dress. This usually takes a few seconds.</p>
+            </>}
           </Card>
         </>
       )}

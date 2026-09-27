@@ -203,6 +203,9 @@ test("live bride creates an event, runs a service try-on, and persists confirmat
 test("live invite supports anonymous uploads, tone analysis, custom dress save and confirmation", async ({ page }) => {
   const state = await setupLive(page, false); await page.goto(`/invite/${INVITE}`);
   await expect(page.getByRole("heading", { name: "Live test wedding", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Go to home", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Your name")).toBeVisible();
   await expect(page.getByText(/membership/i)).toHaveCount(0);
   await page.getByLabel("Your name").fill("Live guest"); await page.getByRole("button", { name: "Open my fitting room" }).tap();

@@ -71,7 +71,9 @@ test("studio selects, nudges, undoes, saves, restores, and exports", async ({ pa
 
 for (const path of ["/", "/login", "/dashboard", "/events/new", "/events/demo-wedding/style", "/events/demo-wedding", "/invite/demo", "/messages", "/upgrade"]) {
   test(`workflow page ${path} fits a mobile viewport`, async ({ page }) => {
-    await page.goto(path, { waitUntil: "domcontentloaded" }); await expect(page.locator(".mobile-demo-banner")).toBeVisible();
+    await page.goto(path, { waitUntil: "domcontentloaded" });
+    if (path === "/upgrade") await expect(page.locator(".mobile-demo-banner")).toHaveCount(0);
+    else await expect(page.locator(".mobile-demo-banner")).toBeVisible();
     if (path.endsWith("/style")) await acknowledge(page);
     await expectViewportFit(page);
     await page.screenshot({ path: `test-results/${path.replace(/\//g, "-") || "home"}-${test.info().project.name}.png`, fullPage: true });
@@ -128,6 +130,8 @@ test("bride can create a local event and confirm a fixture try-on", async ({ pag
 test("bridesmaid can upload, try on, confirm, and reopen her lineup", async ({ page }) => {
   await page.goto("/invite/demo");
   await expect(page.getByRole("heading", { name: "Our wedding party", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Go to home", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Your name")).toBeVisible();
   await page.getByLabel("Your name").fill("Mobile guest");
   await page.getByRole("button", { name: "Open my fitting room" }).tap();
@@ -218,7 +222,10 @@ test("studio preserves saved positions through rotation and preview navigation",
 });
 
 test("RevenueCat screen does not simulate configured purchases", async ({ page }) => {
-  await page.goto("/upgrade"); await expect(page.getByRole("status")).toContainText("No RevenueCat Test Store is configured");
+  await page.goto("/upgrade"); await expect(page.getByRole("status")).toContainText("Wedding Pass purchases are currently unavailable");
   await expect(page.getByRole("heading", { name: "Vows & Vibe Pro — One-Time Wedding Pass" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Choose a plan" })).toBeVisible();
+  await expect(page.getByText("Mobile preview", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/test purchase|test store|not configured/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /restore/i })).toHaveCount(0);
 });

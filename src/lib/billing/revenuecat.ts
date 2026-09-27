@@ -1,4 +1,5 @@
 export const DEFAULT_PRO_ENTITLEMENT = "vows_vibes_pro";
+export const DEFAULT_PRO_PRODUCT_IDS = ["vows_vibes_pro_lifetime", "vows_vibes_pro_wedding_pass"];
 
 type Entitlement = {
   expires_date: string | null;
@@ -36,6 +37,19 @@ export class RevenueCatUnavailableError extends Error {
   }
 }
 
+export function revenueCatEntitlementId() {
+  return process.env.REVENUECAT_PRO_ENTITLEMENT?.trim()
+    || process.env.REVENUECAT_GROUP_PREVIEW_ENTITLEMENT?.trim()
+    || DEFAULT_PRO_ENTITLEMENT;
+}
+
+export function revenueCatProProductIds() {
+  const configured = process.env.REVENUECAT_PRO_PRODUCT_IDS?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return configured?.length ? configured : DEFAULT_PRO_PRODUCT_IDS;
+}
+
 function validDate(value: string | null | undefined) {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
@@ -43,6 +57,28 @@ function validDate(value: string | null | undefined) {
 function purchaseForEntitlement(subscriber: RevenueCatSubscriber, entitlement: Entitlement) {
   return subscriber.subscriptions?.[entitlement.product_identifier]
     ?? subscriber.non_subscriptions?.[entitlement.product_identifier]?.at(-1);
+}
+
+function purchaseIsActive(purchase: Purchase, allowSandbox: boolean, now: number) {
+  if (!validDate(purchase.purchase_date) || purchase.refunded_at || (!allowSandbox && purchase.is_sandbox)) return false;
+  if (purchase.expires_date == null) return true;
+  return validDate(purchase.expires_date) && Date.parse(purchase.expires_date) > now;
+}
+
+function activeConfiguredProduct(
+  subscriber: RevenueCatSubscriber,
+  productIds: string[],
+  allowSandbox: boolean,
+  now: number,
+) {
+  return productIds.flatMap((productIdentifier) => [
+    ...(subscriber.non_subscriptions?.[productIdentifier] ?? []).map((purchase) => ({ productIdentifier, purchase })),
+    ...(subscriber.subscriptions?.[productIdentifier]
+      ? [{ productIdentifier, purchase: subscriber.subscriptions[productIdentifier] }]
+      : []),
+  ])
+    .filter(({ purchase }) => purchaseIsActive(purchase, allowSandbox, now))
+    .sort((a, b) => Date.parse(b.purchase.purchase_date!) - Date.parse(a.purchase.purchase_date!))[0] ?? null;
 }
 
 export function entitlementIsActive(subscriber: RevenueCatSubscriber, id: string, allowSandbox: boolean, now = Date.now()) {
@@ -60,11 +96,22 @@ export function subscriptionAccessFromSubscriber(
   entitlementId: string,
   allowSandbox: boolean,
   now = Date.now(),
+  productIds: string[] = [],
 ): ProSubscriptionAccess {
   const entitlement = subscriber.entitlements?.[entitlementId];
   const active = entitlementIsActive(subscriber, entitlementId, allowSandbox, now);
   if (!entitlement || !active) {
-    return { configured: true, active: false, entitlementId, productIdentifier: null, periodStart: null, periodEnd: null };
+    // A strict allowlist keeps the intended Wedding Pass usable if RevenueCat's
+    // product-to-entitlement attachment is delayed or accidentally removed.
+    const configuredProduct = activeConfiguredProduct(subscriber, productIds, allowSandbox, now);
+    return configuredProduct ? {
+      configured: true,
+      active: true,
+      entitlementId,
+      productIdentifier: configuredProduct.productIdentifier,
+      periodStart: configuredProduct.purchase.purchase_date!,
+      periodEnd: validDate(configuredProduct.purchase.expires_date) ? configuredProduct.purchase.expires_date! : null,
+    } : { configured: true, active: false, entitlementId, productIdentifier: null, periodStart: null, periodEnd: null };
   }
   const purchase = purchaseForEntitlement(subscriber, entitlement);
   const periodStart = validDate(purchase?.purchase_date) ? purchase!.purchase_date! : entitlement.purchase_date;
@@ -81,9 +128,7 @@ export function subscriptionAccessFromSubscriber(
 
 /** Server-authoritative Pro status. The App User ID is always the verified Supabase bride UUID. */
 export async function proSubscriptionAccess(userId: string): Promise<ProSubscriptionAccess> {
-  const entitlementId = process.env.REVENUECAT_PRO_ENTITLEMENT?.trim()
-    || process.env.REVENUECAT_GROUP_PREVIEW_ENTITLEMENT?.trim()
-    || DEFAULT_PRO_ENTITLEMENT;
+  const entitlementId = revenueCatEntitlementId();
   const key = process.env.REVENUECAT_SECRET_API_KEY?.trim();
   if (!key) {
     return { configured: false, active: false, entitlementId, productIdentifier: null, periodStart: null, periodEnd: null };
@@ -105,6 +150,8 @@ export async function proSubscriptionAccess(userId: string): Promise<ProSubscrip
     data.subscriber,
     entitlementId,
     process.env.REVENUECAT_ALLOW_SANDBOX === "true",
+    Date.now(),
+    revenueCatProProductIds(),
   );
 }
 

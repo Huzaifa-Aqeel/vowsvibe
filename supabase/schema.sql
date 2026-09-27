@@ -171,6 +171,33 @@ create unique index if not exists vto_attempts_id_participant_idx on vto_attempt
 create index if not exists vto_attempts_participant_idx on vto_attempts(participant_id, created_at desc);
 create unique index if not exists vto_one_confirmed_per_participant_idx on vto_attempts(participant_id) where status = 'confirmed';
 
+-- Server-only RevenueCat state. Webhook deliveries are idempotently recorded, while
+-- the entitlement snapshot is refreshed from RevenueCat's subscriber API rather than
+-- trusting the possibly delayed/out-of-order event body.
+create table if not exists revenuecat_entitlements (
+  app_user_id uuid not null references auth.users(id) on delete cascade,
+  entitlement_id text not null,
+  active boolean not null default false,
+  product_identifier text,
+  period_start timestamptz,
+  period_end timestamptz,
+  environment text,
+  revenuecat_event_id text,
+  event_timestamp_ms bigint not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (app_user_id, entitlement_id)
+);
+
+create table if not exists revenuecat_webhook_events (
+  id text primary key,
+  event_type text not null,
+  app_user_id text,
+  environment text,
+  event_timestamp_ms bigint not null,
+  received_at timestamptz not null default now(),
+  processed_at timestamptz not null default now()
+);
+
 -- Atomically reserve a VTO slot before contacting the paid provider. The API supplies
 -- the verified RevenueCat billing-period start and plan limit; only the service role may
 -- execute this function. Error attempts and abandoned reservations older than 30 minutes
@@ -413,6 +440,8 @@ alter table participant_dresses enable row level security;
 alter table vto_attempts enable row level security;
 alter table participant_suggestions enable row level security;
 alter table suggestion_updates enable row level security;
+alter table revenuecat_entitlements enable row level security;
+alter table revenuecat_webhook_events enable row level security;
 
 -- Events Policies
 drop policy if exists "owners manage their events" on events;

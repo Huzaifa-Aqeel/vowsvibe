@@ -66,6 +66,24 @@ describe("server membership verification", () => {
     expect(entitlementIsActive(subscriber("broken-date"), "vows_vibes_pro", false, now)).toBe(false);
   });
 
+  it("recognizes only allowlisted one-time Wedding Pass products when an entitlement mapping is missing", () => {
+    const purchaseOnly: RevenueCatSubscriber = {
+      entitlements: {},
+      non_subscriptions: {
+        vows_vibes_pro_lifetime: [{ is_sandbox: true, purchase_date: "2026-09-15T00:00:00Z" }],
+      },
+    };
+    expect(subscriptionAccessFromSubscriber(
+      purchaseOnly, "vows_vibes_pro", true, now, ["vows_vibes_pro_lifetime"],
+    )).toMatchObject({ active: true, productIdentifier: "vows_vibes_pro_lifetime", periodEnd: null });
+    expect(subscriptionAccessFromSubscriber(
+      purchaseOnly, "vows_vibes_pro", false, now, ["vows_vibes_pro_lifetime"],
+    ).active).toBe(false);
+    expect(subscriptionAccessFromSubscriber(
+      purchaseOnly, "vows_vibes_pro", true, now, ["another_product"],
+    ).active).toBe(false);
+  });
+
   it("uses the latest verified renewal as the VTO quota period", () => {
     expect(subscriptionAccessFromSubscriber(subscriber("2026-10-01T00:00:00Z"), "vows_vibes_pro", false, now)).toMatchObject({
       active: true,

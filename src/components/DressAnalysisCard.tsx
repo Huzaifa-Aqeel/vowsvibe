@@ -15,6 +15,7 @@ export function DressAnalysisCard({
   disabled = false,
   initialAnalysisOpen = false,
   actionLabel = "Try this dress",
+  paletteCue = null,
 }: {
   url: string;
   alt: string;
@@ -23,9 +24,13 @@ export function DressAnalysisCard({
   disabled?: boolean;
   initialAnalysisOpen?: boolean;
   actionLabel?: string;
+  paletteCue?: "Family Match" | "Related shade" | null;
 }) {
   const [analysisOpen, setAnalysisOpen] = useState(initialAnalysisOpen);
   const mobile = isMobileRuntime();
+  const cueClass = paletteCue === "Family Match"
+    ? "border-rose-200 bg-rose-50 text-rose-800"
+    : "border-amber-200 bg-amber-50 text-amber-800";
   function renderAnalysis(content: ReactNode) { return mobile && analysisOpen ? createPortal(content, document.body) : content; }
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -61,7 +66,7 @@ export function DressAnalysisCard({
       <div
       className={`dress-analysis-card group relative aspect-[3/4] w-full select-none outline-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       tabIndex={disabled ? -1 : 0}
-      aria-label={`${alt}. ${analysis.badgeLabel}. ${analysisOpen ? "Analysis open" : "View analysis"}`}
+      aria-label={`${alt}. ${analysis.badgeLabel}.${paletteCue ? ` ${paletteCue}.` : ""} ${analysisOpen ? "Analysis open" : "View analysis"}`}
       onKeyDown={(event) => {
         if (disabled) return;
         if (event.key === "Enter" || event.key === " ") {
@@ -81,6 +86,7 @@ export function DressAnalysisCard({
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt={alt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]" />
+          {paletteCue && <span className={`absolute left-2 top-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${cueClass}`}>{paletteCue}</span>}
           <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
             {actionLabel}
           </div>
@@ -112,6 +118,7 @@ export function DressAnalysisCard({
           <div className="flex h-full flex-col overflow-hidden pt-1">
             <div className="pr-8">
               <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">Dress analysis</p>
+              {paletteCue && <span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${cueClass}`}>{paletteCue}</span>}
               <div className="mt-1 flex items-start justify-between gap-3">
                 <div>
                   <p className="font-serif text-xl leading-tight text-stone-900">{analysis.badgeLabel}</p>

@@ -997,12 +997,17 @@ const filteredIds = useMemo(() => {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="relative pr-8">
               <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Filter by color</p>
-              <GuidePopover title="How filtering works" label="How filtering by color works" align="left">
+              <GuidePopover
+                title="How filtering works"
+                label="How filtering by color works"
+                variant="inline"
+                buttonClassName="absolute right-0 top-1/2 -translate-y-1/2 grid h-6 w-6 place-items-center rounded-full border border-stone-200 bg-white text-stone-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+              >
                 <GuideRow dot="bg-emerald-400" label="Palette Match">Her dress name is an exact match to one of your chosen colors.</GuideRow>
                 <GuideRow dot="bg-rose-400" label="Family Match">A different name, but close enough in actual shade to look coordinated with one of your colors.</GuideRow>
-                <GuideRow dot="bg-amber-400" label="Related shade">Same color family as one of your picks, but far enough off that it may stand out in photos.</GuideRow>
+                <GuideRow dot="bg-amber-400" label="Related shade">Same color family as one of your picks, but far off from your chosen palette.</GuideRow>
                 <GuideRow dot="bg-stone-300" label="Different family">A color unrelated to anything in your palette.</GuideRow>
                 <p className="pt-1 text-[11px] leading-5 text-stone-500">Tap any color or bucket below to fade everyone else on the canvas, so you can spot who stands out at a glance.</p>
               </GuidePopover>

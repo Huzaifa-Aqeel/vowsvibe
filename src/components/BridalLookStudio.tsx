@@ -1,4 +1,6 @@
 "use client";
+import { clientFetch as fetch } from "@/lib/platform/runtime";
+import { MobileFittingSteps } from "@/components/MobileFittingSteps";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -24,7 +26,7 @@ function currentUndertone(skinHex: string | null | undefined, stored: Undertone 
   catch { return stored ?? null; }
 }
 
-export function BridalLookStudio({ event, initialLooks, brideParticipantId, initialPhotoUrl, initialUndertone, initialSkinToneHex, initialHairToneHex }: { event: EventRow; initialLooks: BridalLookView[]; brideParticipantId: string; initialPhotoUrl?: string | null; initialUndertone?: Undertone | null; initialSkinToneHex?: string | null; initialHairToneHex?: string | null }) {
+export function BridalLookStudio({ event, initialLooks, brideParticipantId, initialPhotoUrl, initialUndertone, initialSkinToneHex, initialHairToneHex, onUpgradeRequired }: { event: EventRow; initialLooks: BridalLookView[]; brideParticipantId: string; initialPhotoUrl?: string | null; initialUndertone?: Undertone | null; initialSkinToneHex?: string | null; initialHairToneHex?: string | null; onUpgradeRequired?: () => void }) {
   const router = useRouter();
   const [photoUrl, setPhotoUrl] = useState<string | null>(initialPhotoUrl ?? initialLooks[0]?.original_photo_url ?? null);
   interface StoredDress {
@@ -131,6 +133,7 @@ async function startLook(dressUrl: string) {
       });
 
       const json = await res.json();
+      if (res.status === 402 && json.upgrade_required) onUpgradeRequired?.();
       if (!res.ok) throw new Error(json.error ?? "Could not start preview");
 
       const lookId = json.look_id as string;
@@ -267,7 +270,7 @@ async function startLook(dressUrl: string) {
           </p>
           <h2 className="font-serif text-3xl font-normal text-stone-900 sm:text-4xl">Find the one</h2>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
-            Upload one full-body photo, add as many dresses as you wish, and see each look on you before the fitting room.
+            Upload one full-body photo, build your dress rail, and use your available AI try-ons before the fitting room.
           </p>
         </div>
       </div>
@@ -315,9 +318,9 @@ async function startLook(dressUrl: string) {
         </div>
       ) : (
         /* State 3: Setup Rails */
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div><MobileFittingSteps/><div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           {/* Column 01: Photo Upload */}
-          <div className="flex flex-col">
+          <div data-fitting-photo className="flex flex-col">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">01 · Your photo</p>
@@ -332,13 +335,16 @@ async function startLook(dressUrl: string) {
               photoUrl={photoUrl}
               skinToneCaptured={Boolean(skinToneHex)}
               onPhotoUploaded={async (url, path) => {
+                if (path) {
+                  const response = await fetch(`/api/participants/${brideParticipantId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ original_photo_path: path }) });
+                  if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Could not save your photo. Try again.");
+                }
                 setPhotoUrl(url);
-                if (!path) return;
-                await fetch(`/api/participants/${brideParticipantId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ original_photo_path: path }) });
               }}
               onPhotoCleared={async () => {
+                const response = await fetch(`/api/participants/${brideParticipantId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ original_photo_path: null }) });
+                if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Could not remove your photo. Try again.");
                 setPhotoUrl(null);
-                await fetch(`/api/participants/${brideParticipantId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ original_photo_path: null }) });
               }}
               onSkinToneResult={(result: SkinToneResult) => {
                 // Skin tone now comes from the independent selfie side of the flip card,
@@ -358,7 +364,7 @@ async function startLook(dressUrl: string) {
           </div>
 
           {/* Column 02: Dress Rail */}
-          <div>
+          <div data-fitting-dresses>
             <div className="mb-3">
               <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">02 · Your dresses</p>
               <h3 className="mt-0.5 font-serif text-xl text-stone-900">Build your fitting rail</h3>
@@ -395,6 +401,7 @@ async function startLook(dressUrl: string) {
               <div className="pt-5">
                 <div className="aspect-[3/4] w-full">
                   <DressDropzone
+                  participantAuth={{ participantId: brideParticipantId }}
                   variant="catalog"
                   folder="user-dresses/bride"
                   label="Add a dress"
@@ -408,15 +415,7 @@ async function startLook(dressUrl: string) {
                       color_name: meta?.colorName ?? null,
                     };
 
-                    addDress(dressObj);
-                    setNewlyAnalyzedDressUrl(url);
-                    if (dressObj.primary_hex && skinToneHex && hairToneHex && undertone) {
-                      const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
-                      setDressAnalyses((current) => ({ ...current, [url]: analyzeDressWithSkinAndHair(dressObj.primary_hex!, profile) }));
-                    }
-
                     if (path) {
-                      try {
                         const resp = await fetch(`/api/participants/${brideParticipantId}/dresses`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
@@ -426,13 +425,13 @@ async function startLook(dressUrl: string) {
                             color_name: dressObj.color_name,
                           }),
                         });
-                        const json = await resp.json();
-                        if (!resp.ok) {
-                          console.error("Failed to save participant dress", json.error ?? json);
-                        }
-                      } catch (err) {
-                        console.error("Failed to save participant dress", err);
-                      }
+                        if (!resp.ok) throw new Error((await resp.json().catch(() => null))?.error ?? "Could not save your dress. Try again.");
+                    }
+                    addDress(dressObj);
+                    setNewlyAnalyzedDressUrl(url);
+                    if (dressObj.primary_hex && skinToneHex && hairToneHex && undertone) {
+                      const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
+                      setDressAnalyses((current) => ({ ...current, [url]: analyzeDressWithSkinAndHair(dressObj.primary_hex!, profile) }));
                     }
                   }}
                   />
@@ -446,7 +445,7 @@ async function startLook(dressUrl: string) {
               </div>
             )}
           </div>
-        </div>
+        </div></div>
       )}
 
       {/* Error Message */}

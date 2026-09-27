@@ -167,6 +167,32 @@ To verify a production build locally:
 npm run build
 ```
 
+### Mobile APK development
+
+The Android app is in `mobile/`. After a mobile/shared UI edit or a change to `mobile/.env.local`, run the checks, sync the web bundle into Capacitor, and rebuild the APK:
+
+```bash
+cd /home/huzaifa-aqeel/vowsvibe-mobile
+npm run typecheck
+
+cd mobile
+npm run typecheck
+npm run typecheck:backend
+npm test
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome npm run test:browser
+npm run android:sync
+
+cd android
+ANDROID_HOME=/home/huzaifa-aqeel/Android/Sdk ./gradlew assembleDebug --console=plain
+
+cd ../..
+cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/artifacts/vowsvibe-live-debug.apk
+/home/huzaifa-aqeel/Android/Sdk/build-tools/36.1.0/apksigner verify mobile/artifacts/vowsvibe-live-debug.apk
+sha256sum mobile/artifacts/vowsvibe-live-debug.apk > mobile/artifacts/vowsvibe-live-debug.apk.sha256
+```
+
+Restart or redeploy the Next backend after backend-only changes. Run an updated `supabase/schema.sql` in the Supabase SQL Editor after database changes. If the ngrok URL or any public `VITE_*` setting changes, update `mobile/.env.local`, run `npm run android:sync`, and rebuild because those values are stored inside the APK. See [mobile/README.md](mobile/README.md) for local server/ngrok commands, Google and invitation callbacks, RevenueCat setup, and the full edit-to-build checklist.
+
 ## Live Deployment
 
 The deployed app is available on Vercel:

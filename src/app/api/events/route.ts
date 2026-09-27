@@ -7,6 +7,15 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const body = await req.json();
   if (!body.title || typeof body.title !== "string") return NextResponse.json({ error: "Event title is required" }, { status: 400 });
+  const { count, error: countError } = await supabase.from("events").select("id", { count: "exact", head: true }).eq("owner_id", user.id);
+  if (countError) return NextResponse.json({ error: "Could not verify your event allowance." }, { status: 500 });
+  if ((count ?? 0) >= 1) {
+    return NextResponse.json({
+      error: "A Vows & Vibe Wedding Pass covers one wedding. Continue with your existing wedding event.",
+      code: "WEDDING_LIMIT_REACHED",
+      upgrade_required: false,
+    }, { status: 409 });
+  }
   const { data, error } = await supabase.from("events").insert({ owner_id: user.id, title: body.title, event_date: body.event_date || null, dress_style: body.dress_style || null, dress_length: body.dress_length || null, fabric_type: body.fabric_type || null, color_palette: body.color_palette ?? [], example_dresses: body.example_dresses ?? [] }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const admin = createServiceRoleClient();

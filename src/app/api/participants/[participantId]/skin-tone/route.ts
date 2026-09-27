@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { uploadImageBuffer, startSkinToneTask, pollSkinToneTask } from "@/lib/youcam/client";
 import { classifySkinTone } from "@/lib/color/undertone";
+import { participantAiPlan } from "@/lib/billing/plan";
+import { RevenueCatUnavailableError } from "@/lib/billing/revenuecat";
 
 export const runtime = "nodejs";
 // Budget: multipart parse + one YouCam file upload + skin-tone poll (capped at 14s). There
@@ -21,7 +23,7 @@ async function authorize(participantId: string, token: string | null) {
   const service = createServiceRoleClient();
   const { data: participant } = await service
     .from("participants")
-    .select("id,event_id,session_token")
+    .select("id,event_id,session_token,role,skin_tone_hex,skin_undertone,hair_tone_hex,hair_color_name")
     .eq("id", participantId)
     .maybeSingle();
   if (!participant) return { ok: false as const, status: 404, message: "Participant not found" };
@@ -64,6 +66,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
   const auth = await authorize(participantId, token);
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
   const { participant, service: admin } = auth;
+
+  // A successful analysis is a permanent participant profile. Reopening or uploading
+  // another selfie returns the saved result without spending another YouCam analysis.
+  if (participant.skin_tone_hex && participant.skin_undertone) {
+    return NextResponse.json({
+      status: "success",
+      existing: true,
+      skin_tone_hex: participant.skin_tone_hex,
+      undertone: participant.skin_undertone,
+      hair_tone_hex: participant.hair_tone_hex,
+      hair_color_name: participant.hair_color_name,
+    });
+  }
+
+  try {
+    const plan = await participantAiPlan(admin, participant);
+    if (!plan.skinAnalysisAllowed) {
+      return NextResponse.json({
+        error: "The bride needs an active Vows & Vibe Pro Wedding Pass before bridesmaids can use skin-tone analysis.",
+        code: "PRO_REQUIRED",
+        upgrade_required: true,
+      }, { status: 402 });
+    }
+  } catch (error) {
+    if (error instanceof RevenueCatUnavailableError) {
+      return NextResponse.json({ error: error.message, code: "MEMBERSHIP_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
 
   try {
     // In-memory only for the lifetime of this request — never written to Storage, never

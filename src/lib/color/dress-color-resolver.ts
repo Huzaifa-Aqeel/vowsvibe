@@ -31,7 +31,7 @@ const GROQ_BASE =
   process.env.GROQ_API_BASE ?? "https://api.groq.com/openai/v1";
 
 const GROQ_MODEL =
-  process.env.GROQ_COLOR_MODEL ?? "qwen/qwen3.6-27b";
+  process.env.GROQ_COLOR_MODEL ?? "qwen/qwen3.8-27b";
 
 function normalizeName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -132,7 +132,7 @@ async function callTextModel(
     ],
   };
 
-  // Qwen 3.6 supports explicit non-thinking mode. This task is deliberately
+  // Qwen supports explicit non-thinking mode. This task is deliberately
   // simple and should return only the requested JSON object.
   if (isQwen) {
     body.reasoning_effort = "none";
@@ -147,6 +147,7 @@ async function callTextModel(
       ...extraHeaders,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
 
   const raw = await response.text();

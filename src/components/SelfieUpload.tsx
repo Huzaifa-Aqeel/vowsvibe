@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch, canOpenCameraKit, nativeSelfieCapture, isDemoRuntime } from "@/lib/platform/runtime";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, Loader2, RefreshCcw, ShieldCheck } from "lucide-react";
@@ -194,6 +195,22 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
   }, [closeCamera]);
 
   const openCamera = useCallback(async () => {
+    const nativeCapture = nativeSelfieCapture();
+    if (nativeCapture && !canOpenCameraKit()) {
+      setError(null); setStatus("loading-camera");
+      try {
+        const file = await nativeCapture();
+        if (file) await analyze(file); else setStatus("idle");
+      } catch (error) {
+        showFallback(error instanceof Error ? error.message : "Could not open the camera. Upload a selfie instead.");
+      }
+      return;
+    }
+    if (!canOpenCameraKit()) {
+      setCameraNotice(isDemoRuntime() ? "Guided Camera Kit is not connected in this offline prototype. Upload an image to test the demo flow; native camera verification is a separate milestone." : "The guided camera is unavailable here. Upload a selfie to continue.");
+      setStatus("fallback");
+      return;
+    }
     // A fresh mount and init on every attempt makes reopening behave exactly like the
     // first launch, even after the user cancelled Perfect Corp's full camera experience.
     programmaticCloseRef.current = false;
@@ -308,11 +325,11 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 rounded-xl bg-white p-6 text-center">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-blush-50 text-blush-500"><Camera size={22} /></div>
-          <p className="text-sm font-semibold text-stone-800">Take a guided skin-tone selfie</p>
+          <p className="text-sm font-semibold text-stone-800">{nativeSelfieCapture() && !canOpenCameraKit() ? "Take a skin-tone selfie" : "Take a guided skin-tone selfie"}</p>
           {cameraNotice && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] text-amber-800">{cameraNotice}</p>}
           <div className="flex w-full flex-col gap-2.5">
             <button type="button" onClick={openCamera} className="flex w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-950">
-              <Camera size={14} /> Open guided camera
+              <Camera size={14} /> {nativeSelfieCapture() && !canOpenCameraKit() ? "Open selfie camera" : "Open guided camera"}
             </button>
             <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2.5 text-xs font-bold text-stone-700 hover:bg-stone-50">
               <ImagePlus size={14} /> Upload a selfie
@@ -321,7 +338,7 @@ export function SelfieUpload({ participantId, token, onResult, className }: Self
           <span className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600"><ShieldCheck size={12} className="text-emerald-600" /> Analyzed once and never saved</span>
         </div>
       )}
-      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void analyze(file); }} />
+      <input ref={inputRef} type="file" aria-label="Upload a selfie" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void analyze(file); }} />
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </div>
   );

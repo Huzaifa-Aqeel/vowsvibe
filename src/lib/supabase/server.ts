@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 /**
  * Auth-aware server client — respects the signed-in user's session (RLS applies).
@@ -8,6 +8,15 @@ import { cookies } from "next/headers";
  * "who is the current bride?"
  */
 export async function createClient() {
+  const authorization = (await headers()).get("authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    // Supabase verifies the access token through auth.getUser(); queries retain RLS.
+    return createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: authorization } },
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+    );
+  }
   const cookieStore = await cookies();
 
   return createServerClient(

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { participantAiPlan } from "@/lib/billing/plan";
+import { RevenueCatUnavailableError } from "@/lib/billing/revenuecat";
 
 async function authorize(participantId: string, token: string | null) {
   const service = createServiceRoleClient();
@@ -69,6 +71,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
   const { participantId } = await params;
   const auth = await authorize(participantId, req.nextUrl.searchParams.get("token"));
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+
+  try {
+    const plan = await participantAiPlan(auth.service, auth.participant);
+    if (plan.tier !== "pro") {
+      return NextResponse.json({
+        error: auth.participant.role === "bride"
+          ? "Party collaboration requires an active Vows & Vibe Pro Wedding Pass."
+          : "The bride needs an active Vows & Vibe Pro Wedding Pass before the party can send suggestions.",
+        code: "PRO_REQUIRED",
+        upgrade_required: true,
+      }, { status: 402 });
+    }
+  } catch (error) {
+    if (error instanceof RevenueCatUnavailableError) {
+      return NextResponse.json({ error: error.message, code: "MEMBERSHIP_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
 
   if (auth.participant.status !== "confirmed" || !auth.participant.confirmed_look_id) {
     return NextResponse.json({ error: "Confirm your look before sending suggestions." }, { status: 409 });

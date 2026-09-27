@@ -11,8 +11,8 @@ interface PhotoFlipCardProps {
   token?: string | null;
   photoFolder: string;
   photoUrl: string | null;
-  onPhotoUploaded: (url: string, path?: string) => void;
-  onPhotoCleared?: () => void;
+  onPhotoUploaded: (url: string, path?: string) => void | Promise<void>;
+  onPhotoCleared?: () => void | Promise<void>;
   onSkinToneResult: (result: SkinToneResult) => void;
   skinToneCaptured?: boolean;
   className?: string;
@@ -45,7 +45,7 @@ export function PhotoFlipCard({
 
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
-      <div className="[perspective:1200px]">
+      <div className="photo-flip-card [perspective:1200px]">
         <div
           className={cn(
             "relative aspect-[3/4] w-full transition-transform duration-500 [transform-style:preserve-3d]",
@@ -62,6 +62,7 @@ export function PhotoFlipCard({
           >
             <DressDropzone
               folder={photoFolder}
+              participantAuth={{ participantId, token: token ?? undefined }}
               currentUrl={photoUrl}
               label="Upload a clear, full-body photo"
               onUploaded={onPhotoUploaded}

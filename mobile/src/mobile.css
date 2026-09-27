@@ -1,0 +1,81 @@
+html, body, #root { min-height: 100%; margin: 0; background: #fbf9f5; }
+button, select { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button:focus-visible, select:focus-visible { outline: 2px solid #be617c; outline-offset: 3px; }
+.mobile-app { min-height: 100dvh; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+.mobile-header { display: flex; align-items: center; gap: .75rem; min-height: 76px; padding: .75rem 1rem; border-bottom: 1px solid #e8e2db; }
+.mobile-icon-button { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: white; border: 1px solid #e8e2db; }
+.mobile-home { max-width: 650px; margin: 0 auto; padding: 1.25rem; }
+.mobile-flow-page { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+.mobile-demo-banner { flex-shrink: 0; padding: .4rem .75rem; background: #f7f0e5; color: #78644e; font-size: 10px; line-height: 15px; text-align: center; }
+.mobile-app--studio { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.mobile-studio-container { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: .5rem; }
+.mobile-studio-container .lineup-studio-shell { min-height: 0; flex: 1; border-radius: 1.25rem; }
+.mobile-studio-container .canvas-container, .mobile-studio-container .upper-canvas { touch-action: none !important; }
+.mobile-studio-container .lineup-workspace:not(.hidden) { display: flex; flex-direction: column; min-height: 0; }
+.mobile-studio-container .lineup-canvas-viewport { display: grid; place-items: center; flex: 1; min-height: 0; padding: 0; overflow: hidden; }
+.mobile-arrange-controls { position: relative; flex-shrink: 0; bottom: auto; }
+.mobile-arrange-controls button { flex-shrink: 0; }
+.mobile-arrange-controls [aria-label="Arrange selected participant"] { overflow-x: auto; }
+.mobile-studio-container .lineup-sticky-actions { position: relative; flex-shrink: 0; }
+.mobile-studio-container .lineup-people-panel:not(.lineup-preview-settings) { position: absolute; inset: 0 auto 0 0; width: min(300px, 90%); max-height: 100%; margin: 0; }
+.mobile-studio-container .lineup-people-scrim { display: block; }
+.mobile-studio-container [data-preview-mode="true"] { flex-direction: column; overflow-y: auto; }
+.mobile-studio-container .lineup-preview-settings { width: 100%; max-height: 65%; }
+.mobile-studio-container .lineup-preview-scene { min-height: 160px; flex-shrink: 0; padding: 1rem; }
+.mobile-studio-container .lineup-sticky-actions { height: 64px; padding: .5rem; flex-wrap: nowrap; }
+.mobile-studio-container .lineup-sticky-actions > div { width: 100%; justify-content: space-between; gap: .25rem; }
+.mobile-studio-container .lineup-sticky-actions button { min-height: 44px; padding: .5rem .7rem; font-size: 10px; gap: .3rem; }
+.mobile-studio-container .lineup-sticky-actions svg { width: 14px; flex-shrink: 0; }
+.mobile-studio-caption { padding-top: .35rem; text-align: center; font-size: 10px; line-height: 15px; color: #78716c; }
+.mobile-studio-container .lineup-people-panel[aria-hidden="true"] { visibility: hidden; }
+.mobile-studio-container .lineup-studio-shell .pointer-events-none.absolute.bottom-28 { display: none; }
+.mobile-studio-container .lineup-studio-shell > div.relative.min-h-\[520px\] { min-height: 0; }
+.mobile-flow-page .lineup-confirmed-viewport { height: calc(100dvh - 125px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 639px) {
+  .mobile-flow-page > section { padding: 1rem; }
+  .mobile-flow-page input, .mobile-home input, .mobile-home textarea { font-size: 16px; }
+  .mobile-app .min-h-screen { min-height: calc(100dvh - 115px); }
+}
+.mobile-app .group .opacity-0 { opacity: 1; }
+.mobile-app .dress-analysis-card__front > div { opacity: 1; }
+.mobile-app .dress-analysis-card button, .mobile-app .mobile-flow-page button { min-height: 44px; }
+.mobile-app textarea, .mobile-app input, .mobile-app select { font-size: 16px; }
+.mobile-app .suggestion-sheet { position: fixed; inset: auto env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); width: auto; max-height: min(72dvh, 34rem); z-index: 300; }
+.mobile-dialog-open { overflow: hidden; }
+.mobile-not-found { padding: 2rem 1.25rem; }
+.mobile-home .dress-dropzone { min-height: 180px; }
+.mobile-home .dress-dropzone > div { min-height: 180px; }
+.mobile-home #event-form { scroll-margin-top: 1rem; }
+.mobile-home fieldset { min-inline-size: 0; }
+.mobile-app .photo-flip-card { max-width: 340px; margin: 0 auto; width: 100%; }
+.mobile-app .photo-flip-card img { object-fit: contain; }
+.mobile-fitting-steps { display: flex; gap: .5rem; margin-bottom: 1rem; }
+.mobile-fitting-steps button { flex: 1; min-height: 44px; padding: .5rem; border: 1px solid #e8e2db; border-radius: 999px; background: white; font-size: 12px; font-weight: 600; }
+.mobile-app [data-fitting-photo], .mobile-app [data-fitting-dresses] { scroll-margin-top: 1rem; }
+.mobile-app .suggestion-sheet { bottom: var(--mobile-keyboard-inset, 0px); }
+.mobile-color-prompt { position: fixed; z-index: 350; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: var(--mobile-keyboard-inset, 0px); padding: 1.25rem; padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)); }
+.mobile-color-prompt input { font-size: 16px; }
+.mobile-color-prompt button { min-height: 44px; }
+.mobile-app .dress-analysis-card__inner.is-flipped { position: relative; inset: auto; width: 100%; height: 100%; padding: 0; display: block; z-index: auto; transform: none; background: none; backdrop-filter: none; }
+.mobile-dress-analysis { position: fixed; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); width: calc(100dvw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); z-index: 350; transform: none; pointer-events: auto; border-radius: 0; }
+.mobile-dress-analysis button { min-height: 44px; }
+.mobile-dress-analysis > button { min-width: 44px; opacity: 1; }
+@media (orientation: landscape) {
+  .mobile-studio-container .lineup-sticky-actions { display: none; }
+  .mobile-studio-container .lineup-canvas-viewport { padding-bottom: 0; }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  .mobile-studio-container [data-preview-mode="true"] { flex-direction: row; }
+  .mobile-studio-container .lineup-preview-settings { width: 45%; max-height: 100%; }
+  .mobile-studio-container .lineup-preview-scene { min-height: 0; flex-shrink: 1; }
+}
+@media (min-width: 768px) { .mobile-studio-container .lineup-people-panel { max-height: none; } }
+@media (orientation: landscape) and (max-height: 560px) {
+  .mobile-header { min-height: 56px; padding: .25rem .75rem; }
+  .mobile-header p:first-child { font-size: 17px; }
+  .mobile-arrange-controls { padding: .25rem; }
+  .mobile-arrange-controls { display: flex; align-items: center; gap: .5rem; }
+  .mobile-arrange-controls > div:first-child { max-width: 44%; padding-bottom: 0; }
+  .mobile-arrange-controls > div[aria-label="Arrange selected participant"] { flex: 1; }
+  .mobile-studio-caption { display: none; }
+}

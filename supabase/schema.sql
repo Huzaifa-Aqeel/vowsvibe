@@ -171,6 +171,69 @@ create unique index if not exists vto_attempts_id_participant_idx on vto_attempt
 create index if not exists vto_attempts_participant_idx on vto_attempts(participant_id, created_at desc);
 create unique index if not exists vto_one_confirmed_per_participant_idx on vto_attempts(participant_id) where status = 'confirmed';
 
+-- Atomically reserve a VTO slot before contacting the paid provider. The API supplies
+-- the verified RevenueCat billing-period start and plan limit; only the service role may
+-- execute this function. Error attempts and abandoned reservations older than 30 minutes
+-- do not consume allowance, so failed generations are automatically returned.
+create or replace function reserve_vto_attempt(
+  p_participant_id uuid,
+  p_participant_dress_id uuid,
+  p_dress_path text,
+  p_body_photo_path text,
+  p_task_id text,
+  p_period_start timestamptz,
+  p_limit integer
+) returns vto_attempts as $$
+declare
+  reserved vto_attempts;
+  used_count integer;
+begin
+  if p_limit < 1 or p_limit > 100 then
+    raise exception 'INVALID_VTO_LIMIT';
+  end if;
+
+  -- Serialize reservations for one participant even across separate server instances.
+  perform pg_advisory_xact_lock(hashtextextended(p_participant_id::text, 0));
+
+  update vto_attempts
+  set status = 'error'
+  where participant_id = p_participant_id
+    and status = 'processing'
+    and created_at < now() - interval '30 minutes';
+
+  select count(*) into used_count
+  from vto_attempts
+  where participant_id = p_participant_id
+    and status <> 'error'
+    and created_at >= p_period_start;
+
+  if used_count >= p_limit then
+    raise exception 'VTO_QUOTA_EXCEEDED';
+  end if;
+
+  insert into vto_attempts(
+    participant_id,
+    participant_dress_id,
+    dress_path,
+    body_photo_path,
+    task_id,
+    status
+  ) values (
+    p_participant_id,
+    p_participant_dress_id,
+    p_dress_path,
+    p_body_photo_path,
+    p_task_id,
+    'processing'
+  ) returning * into reserved;
+
+  return reserved;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+revoke all on function reserve_vto_attempt(uuid, uuid, text, text, text, timestamptz, integer) from public, anon, authenticated;
+grant execute on function reserve_vto_attempt(uuid, uuid, text, text, text, timestamptz, integer) to service_role;
+
 -- 3b. PARTICIPANT SUGGESTIONS
 -- Suggestions are private to the intended recipient and are scoped to the recipient's
 -- current confirmed look. Old suggestions disappear automatically when that participant

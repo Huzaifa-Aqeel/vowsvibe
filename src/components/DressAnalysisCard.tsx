@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { isMobileRuntime } from "@/lib/platform/runtime";
 import { X } from "lucide-react";
 import type { DressAnalysisResult } from "@/lib/color/dress-analyzer";
 
@@ -24,6 +27,8 @@ export function DressAnalysisCard({
   actionLabel?: string;
 }) {
   const [analysisOpen, setAnalysisOpen] = useState(initialAnalysisOpen);
+  const mobile = isMobileRuntime();
+  function renderAnalysis(content: ReactNode) { return mobile && analysisOpen ? createPortal(content, document.body) : content; }
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -38,7 +43,7 @@ export function DressAnalysisCard({
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const mobileDialog = window.matchMedia("(max-width: 639px)").matches;
+    const mobileDialog = mobile || window.matchMedia("(max-width: 639px)").matches;
     const previousOverflow = document.body.style.overflow;
 
     // Only phones promote the flipped card to a full-viewport modal. Locking
@@ -51,7 +56,7 @@ export function DressAnalysisCard({
       if (mobileDialog) document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus();
     };
-  }, [analysisOpen]);
+  }, [analysisOpen, mobile]);
 
   return (
     <div className="relative w-full pt-5">
@@ -71,6 +76,7 @@ export function DressAnalysisCard({
       <div className={`dress-analysis-card__inner ${analysisOpen ? "is-flipped" : ""}`}>
         <div
           className="dress-analysis-card__face dress-analysis-card__front overflow-hidden rounded-2xl bg-stone-100 shadow-sm ring-offset-2 focus-visible:ring-2 focus-visible:ring-rose-400"
+          aria-hidden={analysisOpen}
           onClick={(event) => {
             event.stopPropagation();
             if (!disabled) setAnalysisOpen(true);
@@ -84,8 +90,9 @@ export function DressAnalysisCard({
 
         </div>
 
-        <div
-          className="dress-analysis-card__face dress-analysis-card__back rounded-2xl border border-rose-100/80 bg-white p-4 shadow-[0_18px_45px_-28px_rgba(28,25,23,0.45)]"
+        {renderAnalysis(<div
+          className={`dress-analysis-card__face dress-analysis-card__back ${mobile && analysisOpen ? "mobile-dress-analysis" : ""} rounded-2xl border border-rose-100/80 bg-white p-4 shadow-[0_18px_45px_-28px_rgba(28,25,23,0.45)]`}
+          aria-hidden={!analysisOpen}
           role={analysisOpen ? "dialog" : undefined}
           aria-modal={analysisOpen ? true : undefined}
           aria-label={analysisOpen ? `${alt} dress analysis` : undefined}
@@ -157,7 +164,7 @@ export function DressAnalysisCard({
               {actionLabel}
             </button>
           </div>
-        </div>
+        </div>)}
       </div>
       </div>
     </div>

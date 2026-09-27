@@ -1,4 +1,7 @@
 "use client";
+import { clientFetch as fetch, isMobileRuntime } from "@/lib/platform/runtime";
+import { useRouter } from "next/navigation";
+import { MobileFittingSteps } from "@/components/MobileFittingSteps";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, Check, Shirt, Camera, Users, ShieldCheck, RotateCcw, ArrowRight, ArrowLeft } from "lucide-react";
@@ -78,11 +81,13 @@ function currentUndertone(skinHex: string | null | undefined, stored: Undertone 
 }
 
 export function BridesmaidFlow({ event }: { event: EventRow }) {
+  const router = useRouter();
   // Always start in loading on the first render. Reading localStorage during the initial
   // state calculation made the server render "name" while the browser rendered "loading",
   // which caused a hydration mismatch and the Next.js error indicator on refresh. The
   // resume effect below decides between studio/confirmed/name after the client mounts.
   const [step, setStep] = useState<Step>("loading");
+  const [resumeRevision, setResumeRevision] = useState(0);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [name, setName] = useState("");
   const [session, setSession] = useState<Session | null>(null);
@@ -136,12 +141,26 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // cheap, so doing it pre-paint costs nothing; the actual network fetch below still runs
   // async and the loading screen still shows for as long as that's genuinely in flight.
   useIsomorphicLayoutEffect(() => {
+    const controller = new AbortController();
+    setError(null);
     const saved = loadSession(event.id);
     if (saved) {
+      setStep("loading");
       setSession(saved);
-      fetch(`/api/participants/${saved.participantId}?token=${saved.token}`)
-        .then((r) => r.json())
+      fetch(`/api/participants/${saved.participantId}?token=${encodeURIComponent(saved.token)}`, { signal: controller.signal })
+        .then(async (response) => {
+          const body = await response.json();
+          if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+          if ([403, 404].includes(response.status)) {
+            window.localStorage.removeItem(storageKey(event.id)); setSession(null);
+            setError("Your saved fitting session is no longer available. Join using a distinct name or ask the bride for help.");
+            return { participant: null };
+          }
+          if (!response.ok) throw new Error(body.error ?? "Could not reopen your fitting room. Try again.");
+          return body;
+        })
         .then(({ participant }) => {
+          if (controller.signal.aborted) return;
           if (!participant) {
             setStep("name");
             return;
@@ -156,7 +175,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
           setSkinToneHex(participant.skin_tone_hex ?? null);
           setHairToneHex(participant.hair_tone_hex ?? null);
           setIsConfirmed(participant.status === "confirmed");
-          fetch(`/api/participants/${saved.participantId}/dresses?token=${saved.token}`)
+          fetch(`/api/participants/${saved.participantId}/dresses?token=${encodeURIComponent(saved.token)}`, { signal: controller.signal })
             .then((dressRes) => dressRes.json())
             .then(({ dresses }) => {
               setCustomDresses((dresses ?? []).map((d: unknown) => {
@@ -177,7 +196,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
             setStep(stepForStatus(participant.status));
           }
         })
-        .catch(() => setStep("name"));
+        .catch((err) => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Could not reopen your fitting room. Try again."); });
     } else {
       // No session for this event on this device at all (first-ever visit, or she cleared
       // storage) — go straight to the name form. Running this check pre-paint (see the
@@ -186,8 +205,8 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     }
     pollGenRef.current += 1;
     if (pollRef.current) clearTimeout(pollRef.current);
-    return undefined;
-  }, [event.id]);
+    return () => controller.abort();
+  }, [event.id, resumeRevision]);
 
   useEffect(() => {
     const syncViewFromHistory = () => {
@@ -201,7 +220,8 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   function navigateTo(view: "studio" | "lineup", mode: "push" | "replace" = "push") {
     const url = new URL(window.location.href);
     url.searchParams.set("view", view);
-    window.history[mode === "replace" ? "replaceState" : "pushState"]({}, "", url);
+    if (isMobileRuntime()) router[mode](url.pathname + url.search);
+    else window.history[mode === "replace" ? "replaceState" : "pushState"]({}, "", url);
     setStep(view === "studio" ? "studio" : "confirmed");
   }
 
@@ -238,7 +258,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       const res = await fetch("/api/participants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: event.id, name }),
+        body: JSON.stringify({ event_id: event.invite_code, name }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not join");
@@ -246,9 +266,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       const s = { participantId: participant.id, token: participant.session_token };
       saveSession(event.id, s);
       setSession(s);
-      // The server may have handed back an EXISTING row (same name, reopened from another
-      // device or after clearing storage) — restore her prior progress instead of always
-      // dropping her into a blank studio.
+      // Populate the new invitation session from the server response.
       setDressUrl(participant.selected_dress_url ?? null);
       setPhotoUrl(participant.original_photo_url ?? null);
       setRenderUrl(participant.vto_render_url ?? null);
@@ -284,17 +302,15 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // Skin tone is no longer derived from this photo — see handleSkinToneResult, driven by
   // the independent selfie side of the flip card — so this no longer triggers analysis.
   async function persistPhoto(url: string, path?: string) {
-    setPhotoUrl(url);
-    if (!session || !path) return;
-    try {
-      await fetch(`/api/participants/${session.participantId}?token=${session.token}`, {
+    if (session && path) {
+      const response = await fetch(`/api/participants/${session.participantId}?token=${session.token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ original_photo_path: path }),
       });
-    } catch (err) {
-      console.error("Could not save photo to participant record", err);
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Could not save your photo. Try again.");
     }
+    setPhotoUrl(url);
   }
 
   // Called once the selfie side of the flip card finishes analysis (see SelfieUpload /
@@ -307,17 +323,15 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   }
 
   async function clearPhoto() {
-    setPhotoUrl(null);
-    if (!session) return;
-    try {
-      await fetch(`/api/participants/${session.participantId}?token=${session.token}`, {
+    if (session) {
+      const response = await fetch(`/api/participants/${session.participantId}?token=${session.token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ original_photo_path: null }),
       });
-    } catch (err) {
-      console.error("Could not clear photo on participant record", err);
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Could not remove your photo. Try again.");
     }
+    setPhotoUrl(null);
   }
 
   const sortedDresses = uniqueDressesByUrl([
@@ -492,15 +506,14 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
       {step === "loading" && (
         <div className="flex min-h-[80vh] items-center justify-center py-6">
           <div className="flex flex-col items-center gap-3 text-stone-400">
-            <Loader2 className="animate-spin" size={22} />
-            <p className="text-xs font-medium uppercase tracking-widest">Welcoming you back…</p>
+            {error ? <><p role="alert" className="max-w-sm px-4 text-center text-sm text-rose-800">{error}</p><Button onClick={() => setResumeRevision((value) => value + 1)}>Try again</Button></> : <><Loader2 className="animate-spin" size={22} /><p className="text-xs font-medium uppercase tracking-widest">Welcoming you back…</p></>}
           </div>
         </div>
       )}
 
       {/* ── STEP 1: NAME ENTRY ── */}
       {step === "name" && (
-        <div className="-mx-5 -my-7 sm:-mx-8 sm:-my-10">
+        <div className={isMobileRuntime() ? "-mx-4 -my-4" : "-mx-5 -my-7 sm:-mx-8 sm:-my-10"}>
           <AuthSplitLayout eyebrow="Your private fitting room" role="bridesmaid">
             <Card className="border-stone-200/80 bg-white p-7 shadow-[0_24px_70px_-35px_rgba(28,25,23,0.35)] sm:p-9">
               <div className="mb-8">
@@ -537,7 +550,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
               <h2 className="font-serif text-3xl text-stone-900">Find your look</h2>
             </div>
             <div className="flex max-w-sm flex-col items-start gap-3 sm:items-end">
-              <p className="text-sm leading-relaxed text-stone-500">Upload your photo once, then try as many dresses as you like. Your previews stay private until you confirm.</p>
+              <p className="text-sm leading-relaxed text-stone-500">Upload your photo once, then use the try-ons included with the bride&apos;s plan. Your previews stay private until you confirm.</p>
               {isConfirmed && (
                 <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("lineup")} className="border-stone-200 bg-white text-xs text-stone-700">
                   <ArrowLeft size={14} /> Back to public lineup
@@ -546,8 +559,9 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
             </div>
           </div>
 
+          <MobileFittingSteps/>
           <div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-            <div>
+            <div data-fitting-photo>
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">01 · Your photo</p>
@@ -570,7 +584,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
               <p className="mt-3 text-xs leading-relaxed text-stone-500">Your full-body photo stays private to your fitting studio and is only ever removed if the bride deletes this event. Your selfie is used only to read your skin tone and is never saved.</p>
             </div>
 
-            <div>
+            <div data-fitting-dresses>
               <div className="mb-3">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">02 · Dress rail</p>
                 <h3 className="mt-0.5 font-serif text-xl text-stone-900">Choose a dress to try</h3>
@@ -605,6 +619,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                 ))}
                 <div className="pt-5">
                   <DressDropzone
+                    participantAuth={session ?? undefined}
                     variant="catalog"
                   folder="user-dresses/bridesmaid"
                   label="Add a dress"
@@ -617,11 +632,8 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                       colorName: meta?.colorName ?? null,
                       family: meta?.family ?? null,
                     };
-                    setCustomDresses((current) => current.some((d) => d.url === url) ? current : [uploaded, ...current]);
-                    setNewlyAnalyzedDressUrl(url);
                     if (path && session) {
-                      try {
-                        const resp = await fetch(`/api/participants/${session.participantId}/dresses`, {
+                        const resp = await fetch(`/api/participants/${session.participantId}/dresses?token=${encodeURIComponent(session.token)}`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
@@ -631,11 +643,10 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                             family: uploaded.family,
                           }),
                         });
-                        if (!resp.ok) console.error("Failed to save uploaded bridesmaid dress", await resp.text());
-                      } catch (err) {
-                        console.error("Failed to save uploaded bridesmaid dress", err);
-                      }
+                        if (!resp.ok) throw new Error((await resp.json().catch(() => null))?.error ?? "Could not save your dress. Try again.");
                     }
+                    setCustomDresses((current) => current.some((d) => d.url === url) ? current : [uploaded, ...current]);
+                    setNewlyAnalyzedDressUrl(url);
                   }}
                   />
                 </div>

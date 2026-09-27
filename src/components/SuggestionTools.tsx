@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch } from "@/lib/platform/runtime";
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Send, X } from "lucide-react";
@@ -20,13 +21,15 @@ interface Props {
   target: ParticipantRow | null;
   className?: string;
   onOpenChange?: (open: boolean) => void;
+  request?: typeof fetch;
+  subscribeToUpdates?: (refresh: () => void) => () => void;
 }
 
 function tokenQuery(token?: string | null) {
   return token ? `?token=${encodeURIComponent(token)}` : "";
 }
 
-export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onOpenChange }: Props) {
+export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onOpenChange, request = fetch, subscribeToUpdates }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const dismissedSuggestionIdsRef = useRef<Set<string>>(new Set());
@@ -41,7 +44,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     if (!currentParticipantId) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, { cache: "no-store" });
+      const response = await request(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, { cache: "no-store" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error ?? "Could not load suggestions");
       const incoming = (json.suggestions ?? []) as SuggestionItem[];
@@ -66,6 +69,8 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     }
 
     void refresh();
+
+    if (subscribeToUpdates) return subscribeToUpdates(() => { void refresh(); });
 
     const supabase = createClient();
     const suggestionChannel = supabase
@@ -104,7 +109,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     setError(null);
 
     try {
-      const response = await fetch(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
+      const response = await request(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ suggestion_id: suggestionId }),
@@ -127,7 +132,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
+      const response = await request(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to_participant_id: target.id, text: text.trim() }),

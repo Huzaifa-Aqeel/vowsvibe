@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { publicStorageUrl } from "@/lib/storage/upload";
+import { participantAiPlan } from "@/lib/billing/plan";
+import { RevenueCatUnavailableError } from "@/lib/billing/revenuecat";
 
 async function authorized(req: NextRequest, participantId: string) {
   const admin = createServiceRoleClient();
@@ -20,6 +22,38 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
   if (!auth) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   const { storage_path, primary_hex, color_name } = await req.json();
   if (!storage_path || typeof storage_path !== "string") return NextResponse.json({ error: "storage_path is required" }, { status: 400 });
+  try {
+    const plan = await participantAiPlan(auth.admin, auth.participant);
+    if (plan.tier === "locked") {
+      return NextResponse.json({
+        error: "The bride needs an active Vows & Vibe Pro Wedding Pass before bridesmaids can add dresses.",
+        code: "PRO_REQUIRED",
+        upgrade_required: true,
+      }, { status: 402 });
+    }
+    if (plan.tier === "free") {
+      const { data: existing } = await auth.admin.from("participant_dresses")
+        .select("id").eq("participant_id", participantId).eq("storage_path", storage_path).maybeSingle();
+      if (!existing) {
+        const { count, error: countError } = await auth.admin.from("participant_dresses")
+          .select("id", { count: "exact", head: true }).eq("participant_id", participantId);
+        if (countError) throw new Error(countError.message);
+        if ((count ?? 0) >= 2) {
+          return NextResponse.json({
+            error: "The free bride plan includes two dress uploads. Buy a one-time Vows & Vibe Pro Wedding Pass to add more.",
+            code: "DRESS_LIMIT_REACHED",
+            upgrade_required: true,
+            limit: 2,
+          }, { status: 402 });
+        }
+      }
+    }
+  } catch (error) {
+    if (error instanceof RevenueCatUnavailableError) {
+      return NextResponse.json({ error: error.message, code: "MEMBERSHIP_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
   // Persist LLM output to participant_dresses. If the DB schema lacks the new column(s),
   // let the error surface so you can run the migration.
   const { data, error } = await auth.admin.from("participant_dresses").upsert({

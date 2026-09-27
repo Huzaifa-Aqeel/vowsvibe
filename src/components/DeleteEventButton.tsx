@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch } from "@/lib/platform/runtime";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";

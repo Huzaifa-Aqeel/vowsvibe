@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vows &amp; Vibe</string>
+    <string name="title_activity_main">Vows &amp; Vibe</string>
+    <string name="package_name">com.vowsvibe.mobile</string>
+    <string name="custom_url_scheme">com.vowsvibe.mobile</string>
+</resources>

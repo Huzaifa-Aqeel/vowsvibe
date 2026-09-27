@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch } from "@/lib/platform/runtime";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";

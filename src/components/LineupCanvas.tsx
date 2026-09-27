@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch, isDemoRuntime } from "@/lib/platform/runtime";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -9,17 +10,21 @@ import {
   GripVertical,
   Image as ImageIcon,
   Loader2,
+  MoreHorizontal,
   PanelLeftOpen,
   Save,
   Sparkles,
   Upload,
   Trash2,
+  Undo2,
+  ChevronDown,
+  ChevronRight,
   X,
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
 import { classifyBridalPaletteBadge, classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
-import { browserFileActions } from "@/lib/platform/file-actions";
+import { browserFileActions, type FileActionAdapter } from "@/lib/platform/file-actions";
 import { prepareImageUpload } from "@/lib/images/prepare-upload";
 import { lineupCanvasHeight } from "@/lib/lineup/geometry";
 
@@ -71,7 +76,7 @@ interface FabricCanvasLike {
   toDataURL: (options?: { format?: string; quality?: number; multiplier?: number }) => string;
 }
 
-interface FabricNamespace {
+export interface FabricNamespace {
   Canvas: new (el: HTMLCanvasElement, options?: Record<string, unknown>) => FabricCanvasLike;
   FabricImage: { fromURL: (url: string, options?: Record<string, unknown>) => Promise<FabricImageLike> };
   filters: { Grayscale: new () => unknown };
@@ -104,6 +109,12 @@ interface Props {
   event: EventRow;
   participants: ParticipantRow[];
   initialPositions: Record<string, LineupPosition>;
+  request?: typeof fetch;
+  fileActions?: FileActionAdapter;
+  loadCanvas?: () => Promise<FabricNamespace>;
+  subscribeToUpdates?: (refresh: () => void) => () => void;
+  onUpgradeRequired?: () => void;
+  mobileMode?: boolean;
 }
 
 function matchesSwatch(
@@ -135,7 +146,8 @@ function defaultPosition(participant: ParticipantRow, index: number, participant
   return { participant_id: participant.id, x, y: 0.07, z_index: brideIndex >= 0 ? 50 - index : 50 - ordinal, hidden: false };
 }
 
-function responsiveCanvasHeight(width: number, element: HTMLCanvasElement) {
+function responsiveCanvasHeight(width: number, element: HTMLCanvasElement, mobileViewport?: HTMLElement | null) {
+  if (mobileViewport) return Math.max(1, Math.min(mobileViewport.clientHeight, width * 1.05));
   const viewportHeight = document.documentElement.clientHeight;
   const canvasTop = element.getBoundingClientRect().top;
   return lineupCanvasHeight(width, viewportHeight, canvasTop);
@@ -176,11 +188,12 @@ function visiblePersonBounds(image: FabricImageLike) {
   }
 }
 
-export function LineupCanvas({ event, participants, initialPositions }: Props) {
+export function LineupCanvas({ event, participants, initialPositions, request = fetch, fileActions = browserFileActions, loadCanvas = loadFabric, subscribeToUpdates, onUpgradeRequired, mobileMode = false }: Props) {
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<FabricCanvasLike | null>(null);
   const lineupSnapshotRef = useRef<string | null>(null);
   const objectMapRef = useRef(new Map<string, FabricImageLike>());
+  const imageSourceRef = useRef(new Map<string, string>());
   const baselineOffsetRef = useRef(new Map<string, number>());
   const stageRef = useRef<HTMLDivElement | null>(null);
   const swatchRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -188,6 +201,8 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const [positions, setPositions] = useState<Record<string, LineupPosition>>(initialPositions);
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
   const [activeSwatch, setActiveSwatch] = useState<string | null>(null);
   const [paletteMatchMode, setPaletteMatchMode] = useState<"palette" | "family" | "other">("palette");
   const [geometryVersion, setGeometryVersion] = useState(0);
@@ -196,7 +211,11 @@ export function LineupCanvas({ event, participants, initialPositions }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [suggestionMode, setSuggestionMode] = useState(false);
   const suggestionModeRef = useRef(false);
-  const [peopleOpen, setPeopleOpen] = useState(true);
+  const [peopleOpen, setPeopleOpen] = useState(!mobileMode);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const historyRef = useRef<Array<Record<string, LineupPosition>>>([]);
+  const [undoCount, setUndoCount] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
   const [venueDataUrl, setVenueDataUrl] = useState<string | null>(event.group_preview_venue_path ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(event.group_preview_path ?? null);
@@ -272,20 +291,12 @@ const filteredIds = useMemo(() => {
       .map((p) => p.id)
   );
 
-  console.log("[Palette Filter]", {
-    mode: paletteMatchMode,
-    swatch: swatch.name,
-    count: filtered.size,
-    participantIds: [...filtered],
-  });
-
   return filtered;
 }, [
   activeSwatch,
   confirmedParticipants,
   palette,
   paletteMatchMode,
-  otherIds,
   sameFamilyOtherIds,
   customOtherIds,
 ]);
@@ -313,7 +324,7 @@ const filteredIds = useMemo(() => {
     if (!canvas) return;
     canvas.getObjects().forEach((object) => {
       object.set({
-        selectable: !nextEnabled,
+        selectable: !nextEnabled && !positionsRef.current[object.participantId ?? ""]?.hidden,
         hasControls: false,
         hoverCursor: nextEnabled ? "pointer" : "move",
       });
@@ -321,9 +332,10 @@ const filteredIds = useMemo(() => {
     canvas.defaultCursor = nextEnabled ? "default" : "default";
     canvas.hoverCursor = nextEnabled ? "default" : "default";
     if (nextEnabled) {
+      const targetId = selectedIdRef.current;
       canvas.discardActiveObject?.();
-      selectedIdRef.current = null;
-      setSelectedId(null);
+      selectedIdRef.current = mobileMode && targetId !== bride?.id ? targetId : null;
+      setSelectedId(selectedIdRef.current);
     }
     canvas.requestRenderAll();
     refreshGeometry();
@@ -332,16 +344,18 @@ const filteredIds = useMemo(() => {
   useEffect(() => {
     let cancelled = false;
     const objectMap = objectMapRef.current;
+    const imageSources = imageSourceRef.current;
+    const baselineOffsets = baselineOffsetRef.current;
     let resizeObserver: ResizeObserver | null = null;
 
     async function boot() {
       try {
-        const fabric = await loadFabric();
+        const fabric = await loadCanvas();
         if (cancelled || !canvasElementRef.current || canvasRef.current) return;
 
         const parent = canvasElementRef.current.parentElement;
         const width = parent?.clientWidth ?? 1100;
-        const height = responsiveCanvasHeight(width, canvasElementRef.current);
+        const height = responsiveCanvasHeight(width, canvasElementRef.current, mobileMode ? parent : null);
         canvasElementRef.current.width = width;
         canvasElementRef.current.height = height;
 
@@ -349,7 +363,7 @@ const filteredIds = useMemo(() => {
           selection: false,
           preserveObjectStacking: true,
           enableRetinaScaling: true,
-          allowTouchScrolling: true,
+          allowTouchScrolling: !mobileMode,
           fireRightClick: false,
         });
         canvasRef.current = canvas;
@@ -377,18 +391,20 @@ const filteredIds = useMemo(() => {
               top: height * (1 - position.y) + baselineOffset,
               scaleX: baseScale,
               scaleY: baseScale,
-              selectable: !suggestionModeRef.current,
-              evented: true,
+              selectable: !position.hidden && !suggestionModeRef.current,
+              evented: !position.hidden,
               hasControls: false,
-              hasBorders: false,
+              hasBorders: mobileMode,
               hoverCursor: "move",
               lockRotation: true,
               cornerColor: "transparent",
-              borderColor: "transparent",
+              borderColor: mobileMode ? "#be617c" : "transparent",
+              borderScaleFactor: mobileMode ? 2 : 1,
               shadow: { color: "rgba(28,25,23,0.25)", blur: 15, offsetX: 0, offsetY: 15 },
             });
             canvas.add(image);
             objectMapRef.current.set(participant.id, image);
+            imageSourceRef.current.set(participant.id, participant.cutout_url);
             baselineOffsetRef.current.set(participant.id, baselineOffset);
             geometryRef.current.set(participant.id, {
               x: image.left,
@@ -410,6 +426,7 @@ const filteredIds = useMemo(() => {
           canvas.requestRenderAll();
         };
         reorder();
+        setCanvasReady(true);
 
         const select = (object?: FabricImageLike) => {
           const id = object?.participantId ?? null;
@@ -438,8 +455,9 @@ const filteredIds = useMemo(() => {
             return;
           }
         });
-        canvas.on("selection:created", (e) => select(e.target));
-        canvas.on("selection:updated", (e) => select(e.target));
+        canvas.on("selection:created", () => select(canvas.getActiveObject() ?? undefined));
+        canvas.on("selection:updated", () => select(canvas.getActiveObject() ?? undefined));
+        if (mobileMode) canvas.on("before:transform", () => rememberLayout());
         canvas.on("selection:cleared", () => {
           selectedIdRef.current = null;
           setSelectedId(null);
@@ -483,7 +501,7 @@ const filteredIds = useMemo(() => {
         });
 
         const resize = () => {
-          const p = canvasElementRef.current?.parentElement;
+          const p = parent;
           const canvasElement = canvasElementRef.current;
           if (!p || !canvasElement) return;
           const nextWidth = p.clientWidth;
@@ -491,14 +509,14 @@ const filteredIds = useMemo(() => {
           // resulting zero-width observation so Fabric keeps its backing-store
           // dimensions and can restore the lineup without rescaling from zero.
           if (nextWidth < 1) return;
-          const nextHeight = responsiveCanvasHeight(nextWidth, canvasElement);
+          const nextHeight = responsiveCanvasHeight(nextWidth, canvasElement, mobileMode ? parent : null);
           const oldWidth = canvas.getWidth();
           const oldHeight = canvas.getHeight();
           if (!oldWidth || !oldHeight) return;
           // Overlay changes (such as opening Suggestions) can notify the observer
           // without changing the available canvas width. Do not recreate Fabric's
           // backing store in that case; it causes a visible size jump on mobile.
-          if (Math.abs(nextWidth - oldWidth) < 1) return;
+          if (Math.abs(nextWidth - oldWidth) < 1 && (!mobileMode || Math.abs(nextHeight - oldHeight) < 1)) return;
           canvas.setDimensions({ width: nextWidth, height: nextHeight });
           canvas.getObjects().forEach((object) => {
             const heightRatio = nextHeight / oldHeight;
@@ -530,12 +548,59 @@ const filteredIds = useMemo(() => {
       canvasRef.current?.dispose();
       canvasRef.current = null;
       objectMap.clear();
-      baselineOffsetRef.current.clear();
+      imageSources.clear();
+      baselineOffsets.clear();
       selectedIdRef.current = null;
     };
     // Initial positions and participants intentionally boot the canvas once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reconcile newly confirmed/changed looks while preserving the bride's current edits.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvasReady || !canvas) return;
+    let cancelled = false;
+    const valid = new Set(confirmedParticipants.filter((participant) => participant.cutout_url).map((participant) => participant.id));
+    for (const [id, object] of objectMapRef.current) {
+      if (valid.has(id)) continue;
+      canvas.remove(object); objectMapRef.current.delete(id); imageSourceRef.current.delete(id);
+      baselineOffsetRef.current.delete(id); geometryRef.current.delete(id);
+      if (selectedIdRef.current === id) { selectedIdRef.current = null; setSelectedId(null); canvas.discardActiveObject?.(); }
+    }
+    void (async () => {
+      const fabric = await loadCanvas();
+      await Promise.all(confirmedParticipants.map(async (participant, index) => {
+        const source = participant.cutout_url;
+        if (!source || imageSourceRef.current.get(participant.id) === source) return;
+        const image = await fabric.FabricImage.fromURL(source, { crossOrigin: "anonymous" });
+        if (cancelled || canvasRef.current !== canvas) return;
+        const current = objectMapRef.current.get(participant.id);
+        const width = canvas.getWidth(); const height = canvas.getHeight();
+        const position = positionsRef.current[participant.id] ?? initialPositions[participant.id] ?? defaultPosition(participant, index, confirmedParticipants);
+        const bounds = visiblePersonBounds(image); const scale = height * .82 / bounds.height;
+        const offset = bounds.bottomPadding * scale;
+        const top = current ? current.top - (baselineOffsetRef.current.get(participant.id) ?? 0) + offset : height * (1 - position.y) + offset;
+        image.set({ participantId: participant.id, originX: "center", originY: "bottom", left: current?.left ?? width * position.x,
+          top, scaleX: scale, scaleY: scale, opacity: position.hidden ? 0 : current?.opacity ?? 1,
+          selectable: !position.hidden && !suggestionModeRef.current, evented: !position.hidden, hasControls: false,
+          hasBorders: mobileMode, lockRotation: true, hoverCursor: "move", cornerColor: "transparent",
+          borderColor: mobileMode ? "#be617c" : "transparent", borderScaleFactor: mobileMode ? 2 : 1,
+          shadow: { color: "rgba(28,25,23,0.25)", blur: 15, offsetX: 0, offsetY: 15 } });
+        const order = current ? canvas.getObjects().indexOf(current) : position.z_index;
+        if (current) canvas.remove(current);
+        canvas.add(image); canvas.moveObjectTo(image, order);
+        objectMapRef.current.set(participant.id, image); imageSourceRef.current.set(participant.id, source);
+        baselineOffsetRef.current.set(participant.id, offset);
+        setPositions((previous) => previous[participant.id] ? previous : { ...previous, [participant.id]: position });
+        if (selectedIdRef.current === participant.id && !suggestionModeRef.current) canvas.setActiveObject(image);
+        image.setCoords();
+      }));
+      if (!cancelled) { canvas.requestRenderAll(); refreshGeometry(); }
+    })().catch(() => { if (!cancelled) setError("Could not load an updated bridal-party look. Try reopening the lineup."); });
+    return () => { cancelled = true; };
+    // Only membership/source changes reconcile images; position edits remain local until saved.
+  }, [canvasReady, confirmedParticipants, initialPositions, loadCanvas, mobileMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -585,6 +650,7 @@ const filteredIds = useMemo(() => {
     if (!canvas || !id) return;
     const object = objectMapRef.current.get(id);
     if (!object) return;
+    if (mobileMode) rememberLayout();
     if (delta > 0) canvas.bringObjectForward(object);
     else canvas.sendObjectBackwards(object);
     const order = canvas.getObjects();
@@ -599,21 +665,33 @@ const filteredIds = useMemo(() => {
     if (!id || !canvas) return;
     const object = objectMapRef.current.get(id);
     if (!object) return;
-    object.set({ opacity: 0 });
+    if (mobileMode) rememberLayout();
+    object.set({ opacity: 0, evented: false, selectable: false });
     setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), z_index: 0 }), hidden: true } }));
     canvas.discardActiveObject?.();
     setSelectedId(null);
     canvas.requestRenderAll();
   }
 
+  async function requirePro(feature: string) {
+    if (isDemoRuntime()) return;
+    const response = await request("/api/mobile/billing", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error ?? "Could not verify your Pro subscription.");
+    if (!body.active) {
+      onUpgradeRequired?.();
+      throw new Error(`${feature} requires an active Vows & Vibe Pro Wedding Pass.`);
+    }
+  }
 
   async function downloadCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     setError(null);
     try {
+      await requirePro("High-resolution lineup export");
       const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
-      await browserFileActions.saveDataUrl(
+      await fileActions.saveDataUrl(
         dataUrl,
         `${event.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "bridal-lineup"}.png`,
       );
@@ -631,12 +709,13 @@ const filteredIds = useMemo(() => {
     reader.onload = () => {
       if (typeof reader.result !== "string") return;
       setVenueDataUrl(reader.result);
-      void fetch(`/api/events/${event.id}/group-preview`, {
+      void request(`/api/events/${event.id}/group-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "venue", image: reader.result }),
       }).then(async (response) => {
         const body = await response.json();
+        if (response.status === 402) onUpgradeRequired?.();
         if (!response.ok) throw new Error(body.error ?? "Could not save venue");
         // Keep the local data URL for canvas composition. Replacing it with the
         // public Storage URL can make the browser reject the later canvas load
@@ -686,13 +765,14 @@ const filteredIds = useMemo(() => {
     setError(null);
     try {
       const image = await flattenPreviewInput();
-      const response = await fetch(`/api/events/${event.id}/group-preview`, {
+      const response = await request(`/api/events/${event.id}/group-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate", image, presets: previewPresets }),
         signal: AbortSignal.timeout(180_000),
       });
       const body = await response.json();
+      if (response.status === 402) onUpgradeRequired?.();
       if (!response.ok) throw new Error(body.error ?? "Could not generate preview");
       setPreviewUrl(body.image);
       setGeneratedPreview(body.image);
@@ -739,12 +819,13 @@ const filteredIds = useMemo(() => {
     setError(null);
     try {
       const image = await previewAsDataUrl(generatedPreview);
-      const response = await fetch(`/api/events/${event.id}/group-preview`, {
+      const response = await request(`/api/events/${event.id}/group-preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save", image }),
       });
       const body = await response.json();
+      if (response.status === 402) onUpgradeRequired?.();
       if (!response.ok) throw new Error(body.error ?? "Could not save preview");
       setPreviewUrl(body.previewUrl);
       setPreviewSaved(true);
@@ -759,8 +840,9 @@ const filteredIds = useMemo(() => {
     if (!previewUrl) return;
     setError(null);
     try {
+      await requirePro("Group-preview export");
       const image = await previewAsDataUrl(previewUrl);
-      await browserFileActions.saveDataUrl(image, `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "bridal"}-group-preview.png`);
+      await fileActions.saveDataUrl(image, `${event.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "bridal"}-group-preview.png`);
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : "Could not download preview");
     }
@@ -784,12 +866,13 @@ const filteredIds = useMemo(() => {
           hidden: Boolean(current.hidden),
         };
       });
-      const response = await fetch(`/api/events/${event.id}/lineup`, {
+      const response = await request(`/api/events/${event.id}/lineup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items }),
       });
       const body = await response.json();
+      if (response.status === 402) onUpgradeRequired?.();
       if (!response.ok) throw new Error(body.error ?? "Could not save lineup");
       setPositions(Object.fromEntries(items.map((item) => [item.participant_id, item])));
       setSaved(true);
@@ -817,13 +900,66 @@ const filteredIds = useMemo(() => {
   }
 
   function selectPerson(participantId: string) {
-    if (suggestionModeRef.current) return;
     const canvas = canvasRef.current;
     const object = objectMapRef.current.get(participantId);
     if (!canvas || !object) return;
+    if (suggestionModeRef.current) {
+      if (!mobileMode) return;
+      selectedIdRef.current = participantId === bride?.id ? null : participantId;
+      setSelectedId(selectedIdRef.current);
+      return;
+    }
+    if (mobileMode && positions[participantId]?.hidden) {
+      rememberLayout();
+      object.set({ opacity: 1, evented: true, selectable: true });
+      setPositions((current) => ({ ...current, [participantId]: { ...current[participantId], hidden: false } }));
+    }
     selectedIdRef.current = participantId;
     setSelectedId(participantId);
     canvas.setActiveObject(object);
+    canvas.requestRenderAll();
+    refreshGeometry();
+  }
+
+  function rememberLayout() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const snapshot = Object.fromEntries(canvas.getObjects().map((object, index) => {
+      const id = object.participantId!;
+      return [id, { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - (object.top - (baselineOffsetRef.current.get(id) ?? 0)) / canvas.getHeight(), z_index: index, hidden: Boolean(positionsRef.current[id]?.hidden) }];
+    }));
+    historyRef.current = [...historyRef.current.slice(-29), snapshot];
+    setUndoCount(historyRef.current.length);
+  }
+
+  function undoLayout() {
+    const canvas = canvasRef.current;
+    const snapshot = historyRef.current.pop();
+    if (!canvas || !snapshot) return;
+    Object.values(snapshot).sort((a, b) => a.z_index - b.z_index).forEach((position, index) => {
+      const object = objectMapRef.current.get(position.participant_id);
+      if (!object) return;
+      object.set({ left: position.x * canvas.getWidth(), top: (1 - position.y) * canvas.getHeight() + (baselineOffsetRef.current.get(position.participant_id) ?? 0), opacity: position.hidden ? 0 : 1, evented: !position.hidden, selectable: !position.hidden });
+      object.setCoords();
+      canvas.moveObjectTo(object, index);
+      geometryRef.current.set(position.participant_id, { x: object.left, y: object.top, width: object.getScaledWidth(), height: object.getScaledHeight() });
+    });
+    setPositions(snapshot);
+    setUndoCount(historyRef.current.length);
+    canvas.requestRenderAll();
+    refreshGeometry();
+  }
+
+  function nudgePerson(dx: number, dy: number) {
+    const canvas = canvasRef.current;
+    const object = selectedId ? objectMapRef.current.get(selectedId) : null;
+    if (!canvas || !object || !selectedId) return;
+    rememberLayout();
+    const offset = baselineOffsetRef.current.get(selectedId) ?? 0;
+    object.set({ left: Math.max(0, Math.min(canvas.getWidth(), object.left + dx)), top: Math.max(offset, Math.min(canvas.getHeight() + offset, object.top + dy)) });
+    object.setCoords();
+    setPositions((current) => ({ ...current, [selectedId]: { ...current[selectedId], participant_id: selectedId, x: object.left / canvas.getWidth(), y: 1 - (object.top - offset) / canvas.getHeight() } }));
+    geometryRef.current.set(selectedId, { x: object.left, y: object.top, width: object.getScaledWidth(), height: object.getScaledHeight() });
     canvas.requestRenderAll();
     refreshGeometry();
   }
@@ -860,13 +996,13 @@ const filteredIds = useMemo(() => {
   }
 
   return (
-    <div ref={stageRef} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
+    <div ref={stageRef} data-mobile-studio={mobileMode || undefined} data-canvas-ready={canvasReady} data-preview-mode={previewMode || undefined} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
       {peopleOpen && !previewMode && (
         <button type="button" aria-label="Close People panel" onClick={() => setPeopleOpen(false)} className="lineup-people-scrim absolute inset-0 z-[70] hidden bg-stone-950/20 backdrop-blur-[2px]" />
       )}
 
       {previewMode && (
-        <aside className="lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95">
+        <aside className="lineup-preview-settings lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95">
           <div className="border-b border-stone-200/70 px-5 py-4">
             <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-rose-800">Compose Studio</p>
             <h2 className="mt-0.5 font-serif text-xl text-stone-900">Group Preview</h2>
@@ -876,7 +1012,7 @@ const filteredIds = useMemo(() => {
               <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Venue</p>
               <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-stone-300 bg-stone-50 text-center">
                 {venueDataUrl ? <img src={venueDataUrl} alt="Selected venue" className="h-28 w-full object-cover" /> : <><Upload size={18} className="text-stone-500" /><span className="mt-2 text-xs font-semibold text-stone-700">Upload venue image</span></>}
-                <input type="file" accept="image/*" className="sr-only" onChange={(e) => void readVenue(e.target.files?.[0])} />
+                <input type="file" aria-label="Upload venue image" accept="image/*" className="sr-only" onChange={(e) => void readVenue(e.target.files?.[0])} />
               </label>
               {venueDataUrl && <p className="mt-1.5 text-[10px] text-stone-400">Your event venue is ready. The flattened generation input is never stored.</p>}
             </div>
@@ -1065,14 +1201,14 @@ const filteredIds = useMemo(() => {
       </aside>
 
       {previewMode && (
-        <div className="relative flex min-h-[520px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e9e1d8] p-5 pb-24 sm:p-8 sm:pb-24">
+        <div className="lineup-preview-scene relative flex min-h-[520px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e9e1d8] p-5 pb-24 sm:p-8 sm:pb-24">
           {previewUrl ? <img src={previewUrl} alt="Generated bridal party group preview" className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" /> : <div className="max-w-sm text-center text-stone-500"><ImageIcon className="mx-auto mb-3" size={30} /><p className="font-serif text-xl text-stone-800">Your group preview will appear here</p><p className="mt-2 text-xs leading-5">Choose a venue and finishing options, then generate a polished portrait.</p></div>}
           {previewGenerating && <div className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-stone-700 shadow"><Loader2 size={14} className="animate-spin" /> Creating preview</div>}
           {previewUrl && <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-end gap-2 border-t border-white/70 bg-[#fffdf9]/85 p-4 backdrop-blur-xl"><button type="button" onClick={() => void downloadPreview()} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-stone-200 bg-white px-4 text-sm font-semibold"><Download size={15}/>Download Preview</button>{generatedPreview && <button type="button" disabled={previewSaving} onClick={() => void savePreview()} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-60"><Save size={15}/>{previewSaving ? "Saving…" : previewSaved ? "Saved" : "Save Preview"}</button>}</div>}
         </div>
       )}
 
-      <div className={`relative min-w-0 flex-1 overflow-hidden bg-[#f3ede5] ${previewMode ? "hidden" : "block"}`} onDragOver={(event) => event.preventDefault()} onDrop={dropPerson}>
+      <div className={`lineup-workspace relative min-w-0 flex-1 overflow-hidden bg-[#f3ede5] ${previewMode ? "hidden" : "block"}`} onDragOver={(event) => event.preventDefault()} onDrop={dropPerson}>
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_24%,rgba(255,255,255,0.96),rgba(250,247,241,0.76)_48%,rgba(226,216,205,0.82)_100%)]" />
         <div className="pointer-events-none absolute inset-x-[8%] bottom-[12%] h-px bg-stone-500/15 shadow-[0_1px_14px_rgba(80,65,55,0.12)]" />
         {!peopleOpen && (
@@ -1081,10 +1217,11 @@ const filteredIds = useMemo(() => {
           </button>
         )}
 
-      <div className="relative min-h-[280px] px-0 pb-20">
+      <div aria-busy={!canvasReady} className="lineup-canvas-viewport relative min-h-[280px] px-0 pb-20">
+        {mobileMode && !canvasReady && <p role="status" className="absolute inset-x-0 top-1/2 z-20 text-center text-xs text-stone-500">Preparing your bridal party…</p>}
         <canvas ref={canvasElementRef} className="lineup-drag-surface relative z-10 block h-full w-full" />
 
-        {!suggestionMode && selectedParticipant && selectedId && (
+        {!mobileMode && !suggestionMode && selectedParticipant && selectedId && (
           <div
             className="pointer-events-auto absolute z-30 flex -translate-x-1/2 -translate-y-full items-center gap-1 rounded-2xl border border-white/65 bg-white/70 px-2 py-1.5 shadow-xl backdrop-blur-xl"
             style={{
@@ -1108,8 +1245,31 @@ const filteredIds = useMemo(() => {
   currentParticipantId={bride?.id ?? null}
   target={selectedParticipant && selectedParticipant.id !== bride?.id ? selectedParticipant : null}
   onOpenChange={syncSuggestionMode}
+  request={request}
+  subscribeToUpdates={subscribeToUpdates}
   className="lineup-suggestions-controls absolute right-4 top-4 z-50"
 />
+{mobileMode && !previewMode && (
+  <div className="mobile-arrange-controls absolute inset-x-0 z-40 border-t border-white/80 bg-[#fffdf9]/95 p-2">
+    <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Select a participant">
+      {confirmedParticipants.map((person) => <button key={person.id} type="button" disabled={!canvasReady} aria-pressed={selectedId === person.id} onClick={() => selectPerson(person.id)} className={`min-h-11 shrink-0 rounded-full border px-3 text-xs font-semibold disabled:opacity-40 ${selectedId === person.id ? "border-rose-300 bg-rose-50 text-rose-900" : "border-stone-200 bg-white text-stone-700"}`}>{person.name}{positions[person.id]?.hidden ? " · Restore" : ""}</button>)}
+    </div>
+    <div className="flex items-center justify-between gap-1" role="group" aria-label="Arrange selected participant">
+      <button type="button" title="Undo arrangement" disabled={!undoCount || suggestionMode} onClick={undoLayout} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><Undo2 size={17}/></button>
+      {[["Move left", -8, 0, ChevronLeft], ["Move right", 8, 0, ChevronRight], ["Move up", 0, -8, ArrowUp], ["Move down", 0, 8, ChevronDown]].map(([label, dx, dy, Icon]) => {
+        const Arrow = Icon as typeof ArrowUp;
+        return <button key={String(label)} type="button" title={String(label)} disabled={!selectedId || suggestionMode} onClick={() => nudgePerson(Number(dx), Number(dy))} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><Arrow size={17}/></button>;
+      })}
+      <button type="button" aria-label="Layers and visibility" aria-expanded={layerMenuOpen} disabled={!selectedId || suggestionMode} onClick={() => setLayerMenuOpen((open) => !open)} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><MoreHorizontal size={18}/></button>
+    </div>
+    {layerMenuOpen && selectedId && !suggestionMode && <div role="dialog" aria-label="Layer controls" className="absolute bottom-full right-2 mb-2 w-48 rounded-2xl border border-stone-200 bg-white p-2 shadow-xl">
+      <button type="button" aria-label="Close layer controls" onClick={() => setLayerMenuOpen(false)} className="ml-auto grid h-11 w-11 place-items-center"><X size={16}/></button>
+      <button type="button" title="Bring forward" onClick={() => { layer(1); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs">Bring forward</button>
+      <button type="button" title="Send back" onClick={() => { layer(-1); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs">Send back</button>
+      <button type="button" title="Remove from lineup" onClick={() => { removeSelected(); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs text-rose-700">Remove from lineup</button>
+    </div>}
+  </div>
+)}
 <div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/70 bg-[#fffdf9]/80 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
     <button type="button" onClick={() => { vibrate(); openGroupPreview(); }} className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"><Sparkles size={15} /> Group Preview</button>

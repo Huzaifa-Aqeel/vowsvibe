@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Camera, Check, FlaskConical, Palette, ShieldCheck, Shirt } from "lucide-react";
+import { isDemoRuntime } from "@/lib/platform/runtime";
 
 const STORAGE_PREFIX = "vv-color-guidance-disclaimer:";
 
@@ -12,22 +13,23 @@ const STORAGE_PREFIX = "vv-color-guidance-disclaimer:";
  * explicitly acknowledges it; opening the studio or refreshing never counts as consent.
  */
 export function ColorGuidanceDisclaimer({ participantId }: { participantId: string }) {
+  const demo = isDemoRuntime();
   const [open, setOpen] = useState(false);
   const acknowledgeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const key = `${STORAGE_PREFIX}${participantId}`;
+    const key = `${STORAGE_PREFIX}${demo ? "demo:" : ""}${participantId}`;
     try {
       if (window.localStorage.getItem(key) === "acknowledged") return;
     } catch {
       // Persistent acknowledgement cannot be guaranteed when browser storage is disabled.
     }
     setOpen(true);
-  }, [participantId]);
+  }, [participantId, demo]);
 
   function acknowledge() {
     try {
-      window.localStorage.setItem(`${STORAGE_PREFIX}${participantId}`, "acknowledged");
+      window.localStorage.setItem(`${STORAGE_PREFIX}${demo ? "demo:" : ""}${participantId}`, "acknowledged");
     } catch {
       // Still allow the current studio session to continue when storage is unavailable.
     }
@@ -65,16 +67,16 @@ export function ColorGuidanceDisclaimer({ participantId }: { participantId: stri
               Personal color guidance, not a verdict
             </h2>
             <p id="color-guidance-description" className="mt-1.5 text-xs leading-5 text-stone-600 sm:text-sm sm:leading-6">
-              We use your selfie to offer explainable styling suggestions. Here is what the result does—and does not—mean.
+              {demo ? "This offline preview uses illustrated fixtures, not real AI analysis. Your images are not sent to Perfect Corp or Supabase." : "We use your selfie to offer explainable styling suggestions. Here is what the result does—and does not—mean."}
             </p>
           </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-7 sm:py-5">
           <div className="space-y-2.5">
-            <GuidanceItem icon={Camera} title="YouCam color analysis">
+            {demo ? <GuidanceItem icon={Camera} title="Demo results only">Selfie uploads return a fixed test color profile. Try-on previews show an illustration and do not reproduce your uploaded photo or dress. Real YouCam and Camera Kit are not connected.</GuidanceItem> : <GuidanceItem icon={Camera} title="YouCam color analysis">
               We use Perfect Corp&apos;s YouCam Skin Tone Analysis API to obtain representative skin and available hair-color values. Lighting, makeup, camera settings, and surroundings can still affect the result.
-            </GuidanceItem>
+            </GuidanceItem>}
             <GuidanceItem icon={FlaskConical} title="Color measurement">
               We convert YouCam&apos;s representative colors into CIE Lab, an established colorimetric space used to compare color consistently. This is styling analysis—not a skin diagnosis.
             </GuidanceItem>
@@ -85,7 +87,7 @@ export function ColorGuidanceDisclaimer({ participantId }: { participantId: stri
               Warm, cool, or neutral undertone labels and “Suggested match” colors are advisory product calculations. They are not scientifically validated rules for what will flatter you.
             </GuidanceItem>
             <GuidanceItem icon={ShieldCheck} title="Your selfie stays out of Vows &amp; Vibe storage">
-              Vows &amp; Vibe sends the selfie to Perfect Corp for analysis but does not save the image in its database or Supabase Storage. Only the derived color values are retained.
+              {demo ? "The demo makes no cloud requests. Uploaded photo and dress contents stay in memory and are replaced with illustrations after reload. Only local event details, test colors, arrangements, and suggestions are saved on this device." : "Vows & Vibe sends the selfie to Perfect Corp for analysis but does not save the image in its database or Supabase Storage. Only the derived color values are retained."}
             </GuidanceItem>
           </div>
 

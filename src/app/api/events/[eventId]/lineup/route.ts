@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getParticipantsWithAttempts, publicParticipant } from "@/lib/vto/participant";
+import { proSubscriptionAccess, RevenueCatUnavailableError } from "@/lib/billing/revenuecat";
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -93,6 +94,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  try {
+    const pro = await proSubscriptionAccess(user.id);
+    if (!pro.active) {
+      return NextResponse.json({
+        error: "Saving a collaborative lineup requires an active Vows & Vibe Pro Wedding Pass.",
+        code: "PRO_REQUIRED",
+        upgrade_required: true,
+      }, { status: 402 });
+    }
+  } catch (error) {
+    if (error instanceof RevenueCatUnavailableError) {
+      return NextResponse.json({ error: error.message, code: "MEMBERSHIP_UNAVAILABLE" }, { status: 503 });
+    }
+    throw error;
+  }
 
   const body = (await req.json()) as { items?: unknown };
   if (!Array.isArray(body.items) || body.items.length === 0) {

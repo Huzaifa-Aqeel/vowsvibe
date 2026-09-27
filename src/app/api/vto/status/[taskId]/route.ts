@@ -30,6 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ task
     return NextResponse.json({ status: "success", render_url: uploaded.url });
   } catch (err) {
     console.error("VTO status failed", err);
+    await admin.from("vto_attempts").update({ status: "error" }).eq("id", attempt.id).eq("status", "processing");
     return NextResponse.json({ status: "error", error: "Could not check render status" }, { status: 502 });
   }
 }

@@ -1,4 +1,5 @@
 "use client";
+import { clientFetch as fetch } from "@/lib/platform/runtime";
 
 import { useEffect, useState } from "react";
 import { LineupRow } from "@/components/LineupRow";

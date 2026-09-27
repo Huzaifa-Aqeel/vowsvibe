@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { publicStorageUrl, uploadToStoragePath } from "@/lib/storage/upload";
+import { groupPreviewAccess } from "@/lib/billing/revenuecat";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -18,7 +19,7 @@ async function ownedEvent(eventId: string) {
   if (!user) return null;
   const admin = createServiceRoleClient();
   const { data } = await admin.from("events").select("id").eq("id", eventId).eq("owner_id", user.id).maybeSingle();
-  return data ? { admin, event: data } : null;
+  return data ? { admin, event: data, userId: user.id } : null;
 }
 
 function generatedImageUrl(payload: Record<string, unknown>): string | null {
@@ -70,6 +71,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ eve
   const access = await ownedEvent(eventId);
   if (!access) return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   const body = await req.json() as { action?: string; image?: string; presets?: string[] };
+  if (!["venue", "save", "generate"].includes(body.action ?? "")) return NextResponse.json({ error: "Unknown group-preview action" }, { status: 400 });
+
+  try {
+    const membership = await groupPreviewAccess(access.userId);
+    if (!membership.entitled) return NextResponse.json({ error: "An active Vows & Vibe Pro Wedding Pass is required for group previews.", code: "PRO_REQUIRED", upgrade_required: true }, { status: 402 });
+  } catch {
+    return NextResponse.json({ error: "Could not verify your Wedding Pass. Please try again.", code: "MEMBERSHIP_UNAVAILABLE" }, { status: 503 });
+  }
 
   if (body.action === "venue") {
     if (!body.image?.startsWith("data:image/") || body.image.length > 5_500_000) return NextResponse.json({ error: "Invalid venue image" }, { status: 400 });

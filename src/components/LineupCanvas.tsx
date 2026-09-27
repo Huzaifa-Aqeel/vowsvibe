@@ -10,18 +10,15 @@ import {
   GripVertical,
   Image as ImageIcon,
   Loader2,
-  MoreHorizontal,
   PanelLeftOpen,
   Save,
   Sparkles,
   Upload,
   Trash2,
-  Undo2,
-  ChevronDown,
-  ChevronRight,
   X,
 } from "lucide-react";
 import { SuggestionTools } from "@/components/SuggestionTools";
+import { GuidePopover, GuideRow } from "@/components/GuidePopover";
 import type { EventRow, LineupPosition, ParticipantRow, SwatchColor } from "@/lib/types";
 import { classifyBridalPaletteBadge, classifyPaletteRelationship, matchesPaletteMode } from "@/lib/color/palette-matching";
 import { browserFileActions, type FileActionAdapter } from "@/lib/platform/file-actions";
@@ -213,9 +210,6 @@ export function LineupCanvas({ event, participants, initialPositions, request = 
   const suggestionModeRef = useRef(false);
   const [peopleOpen, setPeopleOpen] = useState(!mobileMode);
   const [canvasReady, setCanvasReady] = useState(false);
-  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
-  const historyRef = useRef<Array<Record<string, LineupPosition>>>([]);
-  const [undoCount, setUndoCount] = useState(0);
   const [previewMode, setPreviewMode] = useState(false);
   const [venueDataUrl, setVenueDataUrl] = useState<string | null>(event.group_preview_venue_path ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(event.group_preview_path ?? null);
@@ -457,7 +451,6 @@ const filteredIds = useMemo(() => {
         });
         canvas.on("selection:created", () => select(canvas.getActiveObject() ?? undefined));
         canvas.on("selection:updated", () => select(canvas.getActiveObject() ?? undefined));
-        if (mobileMode) canvas.on("before:transform", () => rememberLayout());
         canvas.on("selection:cleared", () => {
           selectedIdRef.current = null;
           setSelectedId(null);
@@ -650,7 +643,6 @@ const filteredIds = useMemo(() => {
     if (!canvas || !id) return;
     const object = objectMapRef.current.get(id);
     if (!object) return;
-    if (mobileMode) rememberLayout();
     if (delta > 0) canvas.bringObjectForward(object);
     else canvas.sendObjectBackwards(object);
     const order = canvas.getObjects();
@@ -665,7 +657,6 @@ const filteredIds = useMemo(() => {
     if (!id || !canvas) return;
     const object = objectMapRef.current.get(id);
     if (!object) return;
-    if (mobileMode) rememberLayout();
     object.set({ opacity: 0, evented: false, selectable: false });
     setPositions((current) => ({ ...current, [id]: { ...(current[id] ?? { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - object.top / canvas.getHeight(), z_index: 0 }), hidden: true } }));
     canvas.discardActiveObject?.();
@@ -910,56 +901,12 @@ const filteredIds = useMemo(() => {
       return;
     }
     if (mobileMode && positions[participantId]?.hidden) {
-      rememberLayout();
       object.set({ opacity: 1, evented: true, selectable: true });
       setPositions((current) => ({ ...current, [participantId]: { ...current[participantId], hidden: false } }));
     }
     selectedIdRef.current = participantId;
     setSelectedId(participantId);
     canvas.setActiveObject(object);
-    canvas.requestRenderAll();
-    refreshGeometry();
-  }
-
-  function rememberLayout() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const snapshot = Object.fromEntries(canvas.getObjects().map((object, index) => {
-      const id = object.participantId!;
-      return [id, { participant_id: id, x: object.left / canvas.getWidth(), y: 1 - (object.top - (baselineOffsetRef.current.get(id) ?? 0)) / canvas.getHeight(), z_index: index, hidden: Boolean(positionsRef.current[id]?.hidden) }];
-    }));
-    historyRef.current = [...historyRef.current.slice(-29), snapshot];
-    setUndoCount(historyRef.current.length);
-  }
-
-  function undoLayout() {
-    const canvas = canvasRef.current;
-    const snapshot = historyRef.current.pop();
-    if (!canvas || !snapshot) return;
-    Object.values(snapshot).sort((a, b) => a.z_index - b.z_index).forEach((position, index) => {
-      const object = objectMapRef.current.get(position.participant_id);
-      if (!object) return;
-      object.set({ left: position.x * canvas.getWidth(), top: (1 - position.y) * canvas.getHeight() + (baselineOffsetRef.current.get(position.participant_id) ?? 0), opacity: position.hidden ? 0 : 1, evented: !position.hidden, selectable: !position.hidden });
-      object.setCoords();
-      canvas.moveObjectTo(object, index);
-      geometryRef.current.set(position.participant_id, { x: object.left, y: object.top, width: object.getScaledWidth(), height: object.getScaledHeight() });
-    });
-    setPositions(snapshot);
-    setUndoCount(historyRef.current.length);
-    canvas.requestRenderAll();
-    refreshGeometry();
-  }
-
-  function nudgePerson(dx: number, dy: number) {
-    const canvas = canvasRef.current;
-    const object = selectedId ? objectMapRef.current.get(selectedId) : null;
-    if (!canvas || !object || !selectedId) return;
-    rememberLayout();
-    const offset = baselineOffsetRef.current.get(selectedId) ?? 0;
-    object.set({ left: Math.max(0, Math.min(canvas.getWidth(), object.left + dx)), top: Math.max(offset, Math.min(canvas.getHeight() + offset, object.top + dy)) });
-    object.setCoords();
-    setPositions((current) => ({ ...current, [selectedId]: { ...current[selectedId], participant_id: selectedId, x: object.left / canvas.getWidth(), y: 1 - (object.top - offset) / canvas.getHeight() } }));
-    geometryRef.current.set(selectedId, { x: object.left, y: object.top, width: object.getScaledWidth(), height: object.getScaledHeight() });
     canvas.requestRenderAll();
     refreshGeometry();
   }
@@ -1050,7 +997,16 @@ const filteredIds = useMemo(() => {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Filter by color</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">Filter by color</p>
+              <GuidePopover title="How filtering works" label="How filtering by color works" align="left">
+                <GuideRow dot="bg-emerald-400" label="Palette Match">Her dress name is an exact match to one of your chosen colors.</GuideRow>
+                <GuideRow dot="bg-rose-400" label="Family Match">A different name, but close enough in actual shade to look coordinated with one of your colors.</GuideRow>
+                <GuideRow dot="bg-amber-400" label="Related shade">Same color family as one of your picks, but far enough off that it may stand out in photos.</GuideRow>
+                <GuideRow dot="bg-stone-300" label="Different family">A color unrelated to anything in your palette.</GuideRow>
+                <p className="pt-1 text-[11px] leading-5 text-stone-500">Tap any color or bucket below to fade everyone else on the canvas, so you can spot who stands out at a glance.</p>
+              </GuidePopover>
+            </div>
             <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-stone-100 p-1" role="group" aria-label="Palette matching mode">
             <button
               type="button"
@@ -1249,27 +1205,6 @@ const filteredIds = useMemo(() => {
   subscribeToUpdates={subscribeToUpdates}
   className="lineup-suggestions-controls absolute right-4 top-4 z-50"
 />
-{mobileMode && !previewMode && (
-  <div className="mobile-arrange-controls absolute inset-x-0 z-40 border-t border-white/80 bg-[#fffdf9]/95 p-2">
-    <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Select a participant">
-      {confirmedParticipants.map((person) => <button key={person.id} type="button" disabled={!canvasReady} aria-pressed={selectedId === person.id} onClick={() => selectPerson(person.id)} className={`min-h-11 shrink-0 rounded-full border px-3 text-xs font-semibold disabled:opacity-40 ${selectedId === person.id ? "border-rose-300 bg-rose-50 text-rose-900" : "border-stone-200 bg-white text-stone-700"}`}>{person.name}{positions[person.id]?.hidden ? " · Restore" : ""}</button>)}
-    </div>
-    <div className="flex items-center justify-between gap-1" role="group" aria-label="Arrange selected participant">
-      <button type="button" title="Undo arrangement" disabled={!undoCount || suggestionMode} onClick={undoLayout} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><Undo2 size={17}/></button>
-      {[["Move left", -8, 0, ChevronLeft], ["Move right", 8, 0, ChevronRight], ["Move up", 0, -8, ArrowUp], ["Move down", 0, 8, ChevronDown]].map(([label, dx, dy, Icon]) => {
-        const Arrow = Icon as typeof ArrowUp;
-        return <button key={String(label)} type="button" title={String(label)} disabled={!selectedId || suggestionMode} onClick={() => nudgePerson(Number(dx), Number(dy))} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><Arrow size={17}/></button>;
-      })}
-      <button type="button" aria-label="Layers and visibility" aria-expanded={layerMenuOpen} disabled={!selectedId || suggestionMode} onClick={() => setLayerMenuOpen((open) => !open)} className="grid h-11 w-11 place-items-center rounded-full bg-stone-100 disabled:opacity-30"><MoreHorizontal size={18}/></button>
-    </div>
-    {layerMenuOpen && selectedId && !suggestionMode && <div role="dialog" aria-label="Layer controls" className="absolute bottom-full right-2 mb-2 w-48 rounded-2xl border border-stone-200 bg-white p-2 shadow-xl">
-      <button type="button" aria-label="Close layer controls" onClick={() => setLayerMenuOpen(false)} className="ml-auto grid h-11 w-11 place-items-center"><X size={16}/></button>
-      <button type="button" title="Bring forward" onClick={() => { layer(1); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs">Bring forward</button>
-      <button type="button" title="Send back" onClick={() => { layer(-1); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs">Send back</button>
-      <button type="button" title="Remove from lineup" onClick={() => { removeSelected(); setLayerMenuOpen(false); }} className="min-h-11 w-full rounded-xl px-3 text-left text-xs text-rose-700">Remove from lineup</button>
-    </div>}
-  </div>
-)}
 <div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/70 bg-[#fffdf9]/80 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
     <button type="button" onClick={() => { vibrate(); openGroupPreview(); }} className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"><Sparkles size={15} /> Group Preview</button>

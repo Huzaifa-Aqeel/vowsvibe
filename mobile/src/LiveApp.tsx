@@ -112,7 +112,7 @@ function EventScreen({ eventId, screen, revision, navigate, retry }: { eventId: 
   if (!bundle.value || !lineup.value) return <Loading/>;
   const { event, bride, looks } = bundle.value;
   if (screen === "style") return <section className="mobile-flow-page"><BridalLookStudio event={event} brideParticipantId={bride.id} initialLooks={looks}
-    initialPhotoUrl={bride.original_photo_url} initialSkinToneHex={bride.skin_tone_hex} initialHairToneHex={bride.hair_tone_hex} initialUndertone={bride.skin_undertone} onUpgradeRequired={() => navigate("/upgrade")}/></section>;
+    initialPhotoUrl={bride.original_photo_url} initialSkinToneHex={bride.skin_tone_hex} initialUndertone={bride.skin_undertone} onUpgradeRequired={() => navigate("/upgrade")}/></section>;
   if (screen === "edit") return <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Edit your event</h1><EventForm mobileMode initialEvent={event} onUpgradeRequired={() => navigate("/upgrade")}/></section>;
   if (screen === "lineup") return <section className="mobile-studio-container" aria-label="Mobile compose studio"><Suspense fallback={<Loading/>}><LineupCanvas event={event}
     participants={lineup.value.participants} initialPositions={lineup.value.positions} request={clientFetch} fileActions={mobileFileActions} loadCanvas={loadBundledCanvas} onUpgradeRequired={() => navigate("/upgrade")} mobileMode/></Suspense>

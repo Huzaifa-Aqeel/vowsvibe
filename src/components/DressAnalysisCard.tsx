@@ -11,7 +11,6 @@ export function DressAnalysisCard({
   url,
   alt,
   analysis,
-  bridePaletteMatch,
   onSelect,
   disabled = false,
   initialAnalysisOpen = false,
@@ -20,7 +19,6 @@ export function DressAnalysisCard({
   url: string;
   alt: string;
   analysis: DressAnalysisResult;
-  bridePaletteMatch?: "palette" | "family" | "same-family" | "custom" | null;
   onSelect: () => void;
   disabled?: boolean;
   initialAnalysisOpen?: boolean;
@@ -59,8 +57,7 @@ export function DressAnalysisCard({
   }, [analysisOpen, mobile]);
 
   return (
-    <div className="relative w-full pt-5">
-      <div className="absolute left-0 top-0 text-[10px] font-semibold tracking-wide text-stone-500">{analysis.score}/100 coordination</div>
+    <div className="relative w-full">
       <div
       className={`dress-analysis-card group relative aspect-[3/4] w-full select-none outline-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       tabIndex={disabled ? -1 : 0}
@@ -121,24 +118,6 @@ export function DressAnalysisCard({
                 </div>
               </div>
             </div>
-
-            {bridePaletteMatch === "palette" ? (
-              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                ✓ Bride&apos;s palette match
-              </span>
-            ) : bridePaletteMatch === "family" ? (
-              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-rose-50 px-2.5 py-1 text-[9px] font-semibold text-rose-700 ring-1 ring-rose-100">
-                ✓ Bride&apos;s suggested palette family match
-              </span>
-            ) : bridePaletteMatch === "same-family" ? (
-              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-semibold text-amber-800 ring-1 ring-amber-100">
-                Bride&apos;s palette family · distinct shade
-              </span>
-            ) : bridePaletteMatch === "custom" ? (
-              <span className="mt-3 inline-flex w-fit items-center rounded-full bg-stone-100 px-2.5 py-1 text-[9px] font-semibold text-stone-700">
-                Distinct from the bride&apos;s palette families
-              </span>
-            ) : null}
 
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
               <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">{analysis.explanationTitle}</p>

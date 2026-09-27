@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DressDropzone } from "@/components/DressDropzone";
 import { DressAnalysisCard } from "@/components/DressAnalysisCard";
+import { UndertoneColorGuide } from "@/components/UndertoneColorGuide";
 import { PhotoFlipCard } from "@/components/PhotoFlipCard";
 import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import type { SkinToneResult } from "@/components/SelfieUpload";
-import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
+import { analyzeDressForSkin, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
 import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
 import { uniqueDressesByUrl } from "@/lib/dresses";
 import type { BridalLookView, EventRow } from "@/lib/types";
@@ -26,7 +27,7 @@ function currentUndertone(skinHex: string | null | undefined, stored: Undertone 
   catch { return stored ?? null; }
 }
 
-export function BridalLookStudio({ event, initialLooks, brideParticipantId, initialPhotoUrl, initialUndertone, initialSkinToneHex, initialHairToneHex, onUpgradeRequired }: { event: EventRow; initialLooks: BridalLookView[]; brideParticipantId: string; initialPhotoUrl?: string | null; initialUndertone?: Undertone | null; initialSkinToneHex?: string | null; initialHairToneHex?: string | null; onUpgradeRequired?: () => void }) {
+export function BridalLookStudio({ event, initialLooks, brideParticipantId, initialPhotoUrl, initialUndertone, initialSkinToneHex, onUpgradeRequired }: { event: EventRow; initialLooks: BridalLookView[]; brideParticipantId: string; initialPhotoUrl?: string | null; initialUndertone?: Undertone | null; initialSkinToneHex?: string | null; onUpgradeRequired?: () => void }) {
   const router = useRouter();
   const [photoUrl, setPhotoUrl] = useState<string | null>(initialPhotoUrl ?? initialLooks[0]?.original_photo_url ?? null);
   interface StoredDress {
@@ -43,7 +44,6 @@ export function BridalLookStudio({ event, initialLooks, brideParticipantId, init
   const [activeLookId, setActiveLookId] = useState<string | null>(initialLooks[0]?.id ?? null);
   const [undertone, setUndertone] = useState<Undertone | null>(() => currentUndertone(initialSkinToneHex, initialUndertone));
   const [skinToneHex, setSkinToneHex] = useState<string | null>(initialSkinToneHex ?? null);
-  const [hairToneHex, setHairToneHex] = useState<string | null>(initialHairToneHex ?? null);
   const [dressAnalyses, setDressAnalyses] = useState<Record<string, DressAnalysisResult>>({});
   const [newlyAnalyzedDressUrl, setNewlyAnalyzedDressUrl] = useState<string | null>(null);
 const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,15 +88,15 @@ const stopPolling = () => {
       setDressAnalyses({});
       return;
     }
-    const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
+    const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
     const next: Record<string, DressAnalysisResult> = {};
     for (const dress of dresses) {
       if (!dress.primary_hex) continue;
-      try { next[dress.url] = analyzeDressWithSkinAndHair(dress.primary_hex, profile); }
+      try { next[dress.url] = analyzeDressForSkin(dress.primary_hex, profile); }
       catch (err) { console.error("Dress compatibility scoring failed for", dress.url, err); }
     }
     setDressAnalyses(next);
-  }, [dresses, photoUrl, skinToneHex, hairToneHex, undertone]);
+  }, [dresses, photoUrl, skinToneHex, undertone]);
 
   const sortedDresses = dresses
     .map((dress, index) => ({ dress, index }))
@@ -352,15 +352,13 @@ async function startLook(dressUrl: string) {
                 // this server-side, so we're just syncing local state for the palette rail.
                 setUndertone(result.undertone);
                 setSkinToneHex(result.hex);
-                setHairToneHex(result.hairHex ?? null);
               }}
             />
 
             <p className="mt-3 text-xs leading-relaxed text-stone-500">
               For the most natural preview, stand facing the camera in even lighting with your full silhouette in frame.
             </p>
-
-
+            {undertone && <UndertoneColorGuide undertone={undertone} />}
           </div>
 
           {/* Column 02: Dress Rail */}
@@ -429,9 +427,9 @@ async function startLook(dressUrl: string) {
                     }
                     addDress(dressObj);
                     setNewlyAnalyzedDressUrl(url);
-                    if (dressObj.primary_hex && skinToneHex && hairToneHex && undertone) {
-                      const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
-                      setDressAnalyses((current) => ({ ...current, [url]: analyzeDressWithSkinAndHair(dressObj.primary_hex!, profile) }));
+                    if (dressObj.primary_hex && skinToneHex && undertone) {
+                      const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
+                      setDressAnalyses((current) => ({ ...current, [url]: analyzeDressForSkin(dressObj.primary_hex!, profile) }));
                     }
                   }}
                   />

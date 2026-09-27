@@ -15,13 +15,11 @@ import { PhotoFlipCard } from "@/components/PhotoFlipCard";
 import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import { PublicLineupBoard } from "@/components/PublicLineupBoard";
 import { DressAnalysisCard } from "@/components/DressAnalysisCard";
+import { UndertoneColorGuide } from "@/components/UndertoneColorGuide";
+import { GuidePopover, GuideRow } from "@/components/GuidePopover";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
 import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
-import { analyzeDressWithSkinAndHair, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
-import {
-  classifyBridalPaletteBadge,
-  type BridalPaletteBadge,
-} from "@/lib/color/palette-matching";
+import { analyzeDressForSkin, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
 import type { DressColorMeta } from "@/components/DressDropzone";
 import { uniqueDressesByUrl } from "@/lib/dresses";
 
@@ -105,14 +103,11 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // event.example_dresses' original order in that case, never blocks or shows an error.
   const [undertone, setUndertone] = useState<Undertone | null>(null);
   // Raw skin_tone_hex, needed alongside `undertone` to actually score individual dresses
-  // (analyzeDressWithSkinAndHair wants real hexes, not just the warm/cool/neutral bucket).
+  // (analyzeDressForSkin wants a real hex, not just the warm/cool/neutral bucket).
   const [skinToneHex, setSkinToneHex] = useState<string | null>(null);
-  // From the same YouCam skin-tone-analysis call as skinToneHex — needed for the personal
-  // (skin vs hair) contrast term in analyzeDressWithSkinAndHair.
-  const [hairToneHex, setHairToneHex] = useState<string | null>(null);
   // Keyed by dress URL. Scoring is now pure, synchronous local math over each dress's
   // primaryHex (resolved from the user-entered dress color palette at upload time — see
-  // event.example_dresses) against her skin+hair profile — no per-dress image fetch or
+  // event.example_dresses) against her skin profile — no per-dress image fetch or
   // client-side color extraction needed anymore, so this fills in immediately the moment
   // her profile is known instead of after an async pass over every dress image.
   const [dressBadges, setDressBadges] = useState<Record<string, DressAnalysisResult>>({});
@@ -122,13 +117,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // These refs are used only by the required YouCam VTO task polling.
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGenRef = useRef(0);
-  function bridePaletteBadge(
-    dressHex: string | null | undefined,
-    colorName?: string | null,
-  ): BridalPaletteBadge | null {
-    return classifyBridalPaletteBadge(colorName, dressHex, event.color_palette ?? []);
-  }
-
 
   // Resume an in-progress session (e.g. she closed the tab while VTO was processing, or
   // simply reopened the invite link later). Session lives in localStorage so it survives
@@ -173,7 +161,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
           setActiveTaskId(participant.vto_task_id ?? null);
           setUndertone(currentUndertone(participant.skin_tone_hex, participant.skin_undertone));
           setSkinToneHex(participant.skin_tone_hex ?? null);
-          setHairToneHex(participant.hair_tone_hex ?? null);
           setIsConfirmed(participant.status === "confirmed");
           fetch(`/api/participants/${saved.participantId}/dresses?token=${encodeURIComponent(saved.token)}`, { signal: controller.signal })
             .then((dressRes) => dressRes.json())
@@ -233,7 +220,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       setDressBadges({});
       return;
     }
-    const profile: YouCamProfile = { skinHex: skinToneHex, hairHex: hairToneHex, undertone };
+    const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
     const next: Record<string, DressAnalysisResult> = {};
     const allDresses = uniqueDressesByUrl([
       ...(event.example_dresses ?? []).map((d) => ({ url: d.url, primaryHex: d.primaryHex ?? null, colorName: d.colorName ?? null })),
@@ -242,13 +229,13 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     for (const d of allDresses) {
       if (!d.primaryHex) continue;
       try {
-        next[d.url] = analyzeDressWithSkinAndHair(d.primaryHex, profile);
+        next[d.url] = analyzeDressForSkin(d.primaryHex, profile);
       } catch (err) {
         console.error("Dress compatibility scoring failed for", d.url, err);
       }
     }
     setDressBadges(next);
-  }, [photoUrl, skinToneHex, hairToneHex, undertone, event.example_dresses, event.color_palette, customDresses]);
+  }, [photoUrl, skinToneHex, undertone, event.example_dresses, event.color_palette, customDresses]);
 
   async function joinEvent(e: React.FormEvent) {
     e.preventDefault();
@@ -274,7 +261,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       setActiveTaskId(participant.vto_task_id ?? null);
       setUndertone(currentUndertone(participant.skin_tone_hex, participant.skin_undertone));
       setSkinToneHex(participant.skin_tone_hex ?? null);
-      setHairToneHex(participant.hair_tone_hex ?? null);
       setIsConfirmed(participant.status === "confirmed");
       fetch(`/api/participants/${participant.id}/dresses?token=${participant.session_token}`)
         .then((dressRes) => dressRes.json())
@@ -316,10 +302,9 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // Called once the selfie side of the flip card finishes analysis (see SelfieUpload /
   // PhotoFlipCard). The selfie itself is never sent here — only the derived tone, which the
   // skin-tone route already persisted server-side.
-  function handleSkinToneResult(result: { hex: string; undertone: Undertone; hairHex?: string | null }) {
+  function handleSkinToneResult(result: { hex: string; undertone: Undertone }) {
     setUndertone(result.undertone);
     setSkinToneHex(result.hex);
-    setHairToneHex(result.hairHex ?? null);
   }
 
   async function clearPhoto() {
@@ -373,13 +358,12 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
   if (primaryHex && skinToneHex && undertone) {
     const profile: YouCamProfile = {
       skinHex: skinToneHex,
-      hairHex: hairToneHex,
       undertone,
     };
 
     setDressBadges((current) => ({
       ...current,
-      [nextDressUrl]: analyzeDressWithSkinAndHair(primaryHex, profile),
+      [nextDressUrl]: analyzeDressForSkin(primaryHex, profile),
     }));
   }
     setStep("processing");
@@ -582,12 +566,22 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                 />
               )}
               <p className="mt-3 text-xs leading-relaxed text-stone-500">Your full-body photo stays private to your fitting studio and is only ever removed if the bride deletes this event. Your selfie is used only to read your skin tone and is never saved.</p>
+              {undertone && <UndertoneColorGuide undertone={undertone} />}
             </div>
 
             <div data-fitting-dresses>
-              <div className="mb-3">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">02 · Dress rail</p>
-                <h3 className="mt-0.5 font-serif text-xl text-stone-900">Choose a dress to try</h3>
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400">02 · Dress rail</p>
+                  <h3 className="mt-0.5 font-serif text-xl text-stone-900">Choose a dress to try</h3>
+                </div>
+                <GuidePopover title="How dress matching works" label="How dress matching works" align="right">
+                  <GuideRow dot="bg-emerald-400" label="Excellent / Strong Match">This shade's hue, lightness, and intensity work well with your undertone.</GuideRow>
+                  <GuideRow dot="bg-stone-300" label="Compatible">A fine option — just not one of the strongest matches for you.</GuideRow>
+                  <GuideRow dot="bg-amber-400" label="Less Recommended">The color relationship is weaker for your coloring — still wearable, just less flattering.</GuideRow>
+                  <GuideRow dot="bg-rose-400" label="Washout Risk">Very close to your own skin tone, so it may blend in rather than stand out.</GuideRow>
+                  <p className="pt-1 text-[11px] leading-5 text-stone-500">Dresses are sorted with your best matches first — tap any dress to see the full reasoning.</p>
+                </GuidePopover>
               </div>
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
                 {sortedDresses.map((d) => (
@@ -597,7 +591,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                         url={d.url}
                         alt={d.label ?? "Dress"}
                         analysis={dressBadges[d.url]}
-                        bridePaletteMatch={bridePaletteBadge(d.primaryHex, d.colorName)}
                         initialAnalysisOpen={newlyAnalyzedDressUrl === d.url}
                         onSelect={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
                         disabled={!photoUrl}

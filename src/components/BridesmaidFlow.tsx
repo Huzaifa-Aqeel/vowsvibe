@@ -14,12 +14,10 @@ import { DressDropzone } from "@/components/DressDropzone";
 import { PhotoFlipCard } from "@/components/PhotoFlipCard";
 import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import { PublicLineupBoard } from "@/components/PublicLineupBoard";
-import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import { UndertoneColorGuide } from "@/components/UndertoneColorGuide";
 import { GuidePopover, GuideRow } from "@/components/GuidePopover";
 import type { EventRow, VtoHistoryEntry } from "@/lib/types";
 import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
-import { analyzeDressForSkin, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
 import { classifyBridalPaletteBadge } from "@/lib/color/palette-matching";
 import type { DressColorMeta } from "@/components/DressDropzone";
 import { uniqueDressesByUrl } from "@/lib/dresses";
@@ -100,19 +98,9 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
   // her most recent run.
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // null = not yet analyzed (or analysis failed) — the dress rail simply falls back to
-  // event.example_dresses' original order in that case, never blocks or shows an error.
   const [undertone, setUndertone] = useState<Undertone | null>(null);
-  // Raw skin_tone_hex, needed alongside `undertone` to actually score individual dresses
-  // (analyzeDressForSkin wants a real hex, not just the warm/cool/neutral bucket).
+  // Retained for the selfie-captured state and EventSummary undertone suggestions.
   const [skinToneHex, setSkinToneHex] = useState<string | null>(null);
-  // Keyed by dress URL. Scoring is now pure, synchronous local math over each dress's
-  // primaryHex (resolved from the user-entered dress color palette at upload time — see
-  // event.example_dresses) against her skin profile — no per-dress image fetch or
-  // client-side color extraction needed anymore, so this fills in immediately the moment
-  // her profile is known instead of after an async pass over every dress image.
-  const [dressBadges, setDressBadges] = useState<Record<string, DressAnalysisResult>>({});
-  const [newlyAnalyzedDressUrl, setNewlyAnalyzedDressUrl] = useState<string | null>(null);
   const [customDresses, setCustomDresses] = useState<Array<{ url: string; primaryHex: string | null; colorName: string | null; family: string | null }>>([]);
   const [busy, setBusy] = useState(false);
   // These refs are used only by the required YouCam VTO task polling.
@@ -213,31 +201,6 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
     setStep(view === "studio" ? "studio" : "confirmed");
   }
 
-  // Dress analysis is deliberately render-time math. The DB already has the participant
-  // skin/hair hex values and Grok has already read the dress primaryHex, so refreshes do not
-  // trigger another model call.
-  useEffect(() => {
-    if (!photoUrl || !skinToneHex || !undertone) {
-      setDressBadges({});
-      return;
-    }
-    const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
-    const next: Record<string, DressAnalysisResult> = {};
-    const allDresses = uniqueDressesByUrl([
-      ...(event.example_dresses ?? []).map((d) => ({ url: d.url, primaryHex: d.primaryHex ?? null, colorName: d.colorName ?? null })),
-      ...customDresses.map((d) => ({ url: d.url, primaryHex: d.primaryHex, colorName: d.colorName })),
-    ]);
-    for (const d of allDresses) {
-      if (!d.primaryHex) continue;
-      try {
-        next[d.url] = analyzeDressForSkin(d.primaryHex, profile);
-      } catch (err) {
-        console.error("Dress compatibility scoring failed for", d.url, err);
-      }
-    }
-    setDressBadges(next);
-  }, [photoUrl, skinToneHex, undertone, event.example_dresses, event.color_palette, customDresses]);
-
   async function joinEvent(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -335,14 +298,7 @@ export function BridesmaidFlow({ event }: { event: EventRow }) {
       colorName: d.colorName,
             index: (event.example_dresses?.length ?? 0) + index,
     })),
-  ]).sort((a, b) => {
-    const aScore = dressBadges[a.url]?.score;
-    const bScore = dressBadges[b.url]?.score;
-    if (aScore == null && bScore == null) return a.index - b.index;
-    if (aScore == null) return 1;
-    if (bScore == null) return -1;
-    return bScore - aScore || a.index - b.index;
-  });
+  ]).sort((a, b) => a.index - b.index);
 
 async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
   if (!session || !photoUrl) {
@@ -352,21 +308,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
 
   setDressUrl(nextDressUrl);
 
-  const primaryHex = dressMeta?.primaryHex;
-
-  // Score the dress immediately when we have the resolved dress color
-  // and the YouCam profile data.
-  if (primaryHex && skinToneHex && undertone) {
-    const profile: YouCamProfile = {
-      skinHex: skinToneHex,
-      undertone,
-    };
-
-    setDressBadges((current) => ({
-      ...current,
-      [nextDressUrl]: analyzeDressForSkin(primaryHex, profile),
-    }));
-  }
     setStep("processing");
     setError(null);
     try {
@@ -588,31 +529,18 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                   const paletteBadge = classifyBridalPaletteBadge(d.colorName, d.primaryHex, event.color_palette);
                   const paletteCue = paletteBadge === "family" ? "Family Match" as const
                     : paletteBadge === "same-family" ? "Related shade" as const : null;
-                  return <div key={d.url} className={dressBadges[d.url] ? "" : "pt-5"}>
-                    {dressBadges[d.url] ? (
-                      <DressAnalysisCard
-                        url={d.url}
-                        alt={d.label ?? "Dress"}
-                        analysis={dressBadges[d.url]}
-                        initialAnalysisOpen={newlyAnalyzedDressUrl === d.url}
-                        onSelect={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
-                        disabled={!photoUrl}
-                        actionLabel="Preview this dress"
-                        paletteCue={paletteCue}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!photoUrl}
-                        onClick={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
-                        className="group relative block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-stone-100 text-left ring-offset-2 transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-rose-400"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={d.url} alt={d.label ?? "Dress"} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                        {paletteCue && <span className={`absolute left-2 top-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${paletteCue === "Family Match" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{paletteCue}</span>}
-                        <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">Preview this dress</span>
-                      </button>
-                    )}
+                  return <div key={d.url} className="pt-5">
+                    <button
+                      type="button"
+                      disabled={!photoUrl}
+                      onClick={() => startVto(d.url, { primaryHex: d.primaryHex, colorName: d.colorName, family: null })}
+                      className="group relative block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-stone-100 text-left ring-offset-2 transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={d.url} alt={d.label ?? "Dress"} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+                      {paletteCue && <span className={`absolute left-2 top-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${paletteCue === "Family Match" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{paletteCue}</span>}
+                      <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">Preview this dress</span>
+                    </button>
                   </div>;
                 })}
                 <div className="pt-5">
@@ -644,7 +572,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                         if (!resp.ok) throw new Error((await resp.json().catch(() => null))?.error ?? "Could not save your dress. Try again.");
                     }
                     setCustomDresses((current) => current.some((d) => d.url === url) ? current : [uploaded, ...current]);
-                    setNewlyAnalyzedDressUrl(url);
                   }}
                   />
                 </div>

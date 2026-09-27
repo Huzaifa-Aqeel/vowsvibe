@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DeleteEventButton } from "@/components/DeleteEventButton";
 import type { EventRow } from "@/lib/types";
 
 export default async function DashboardPage() {
@@ -42,9 +43,9 @@ export default async function DashboardPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {(events as EventRow[]).map((event) => (
-            <div key={event.id}>
+            <div key={event.id} className="relative">
               <Link href={`/events/${event.id}`} className="block h-full">
-                <Card className="h-full transition-shadow hover:shadow-md">
+                <Card className="h-full pr-14 transition-shadow hover:shadow-md">
                   <div className="mb-2 flex flex-wrap gap-1.5">
                     {event.color_palette?.map((color) => (
                       <span
@@ -60,6 +61,9 @@ export default async function DashboardPage() {
                   </p>
                 </Card>
               </Link>
+              <div className="absolute right-3 top-3 z-10">
+                <DeleteEventButton eventId={event.id} eventTitle={event.title} variant="icon" stayOnPage />
+              </div>
             </div>
           ))}
         </div>

@@ -8,12 +8,10 @@ import { Check, ImagePlus, Loader2, RotateCcw, ShieldCheck, WandSparkles } from 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DressDropzone } from "@/components/DressDropzone";
-import { DressAnalysisCard } from "@/components/DressAnalysisCard";
 import { UndertoneColorGuide } from "@/components/UndertoneColorGuide";
 import { PhotoFlipCard } from "@/components/PhotoFlipCard";
 import { ColorGuidanceDisclaimer } from "@/components/ColorGuidanceDisclaimer";
 import type { SkinToneResult } from "@/components/SelfieUpload";
-import { analyzeDressForSkin, type DressAnalysisResult, type YouCamProfile } from "@/lib/color/dress-analyzer";
 import { classifySkinTone, type Undertone } from "@/lib/color/undertone";
 import { uniqueDressesByUrl } from "@/lib/dresses";
 import type { BridalLookView, EventRow } from "@/lib/types";
@@ -44,8 +42,6 @@ export function BridalLookStudio({ event, initialLooks, brideParticipantId, init
   const [activeLookId, setActiveLookId] = useState<string | null>(initialLooks[0]?.id ?? null);
   const [undertone, setUndertone] = useState<Undertone | null>(() => currentUndertone(initialSkinToneHex, initialUndertone));
   const [skinToneHex, setSkinToneHex] = useState<string | null>(initialSkinToneHex ?? null);
-  const [dressAnalyses, setDressAnalyses] = useState<Record<string, DressAnalysisResult>>({});
-  const [newlyAnalyzedDressUrl, setNewlyAnalyzedDressUrl] = useState<string | null>(null);
 const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 const pollGenRef = useRef(0);
 
@@ -82,33 +78,6 @@ const stopPolling = () => {
   function addDress(dress: StoredDress) {
     setDresses((current) => (current.some((d) => d.url === dress.url) ? current : [...current, dress]));
   }
-
-  useEffect(() => {
-    if (!photoUrl || !skinToneHex || !undertone) {
-      setDressAnalyses({});
-      return;
-    }
-    const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
-    const next: Record<string, DressAnalysisResult> = {};
-    for (const dress of dresses) {
-      if (!dress.primary_hex) continue;
-      try { next[dress.url] = analyzeDressForSkin(dress.primary_hex, profile); }
-      catch (err) { console.error("Dress compatibility scoring failed for", dress.url, err); }
-    }
-    setDressAnalyses(next);
-  }, [dresses, photoUrl, skinToneHex, undertone]);
-
-  const sortedDresses = dresses
-    .map((dress, index) => ({ dress, index }))
-    .sort((a, b) => {
-      const aScore = dressAnalyses[a.dress.url]?.score;
-      const bScore = dressAnalyses[b.dress.url]?.score;
-      if (aScore == null && bScore == null) return a.index - b.index;
-      if (aScore == null) return 1;
-      if (bScore == null) return -1;
-      return bScore - aScore || a.index - b.index;
-    })
-    .map(({ dress }) => dress);
 
 async function startLook(dressUrl: string) {
     if (!photoUrl) {
@@ -369,30 +338,19 @@ async function startLook(dressUrl: string) {
             </div>
             
             <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
-              {sortedDresses.map((dress) => (
-                <div key={dress.url} className={dressAnalyses[dress.url] ? "" : "pt-5"}>
-                  {dressAnalyses[dress.url] ? (
-                    <DressAnalysisCard
-                      url={dress.url}
-                      alt="Uploaded dress"
-                      analysis={dressAnalyses[dress.url]}
-                      initialAnalysisOpen={newlyAnalyzedDressUrl === dress.url}
-                      onSelect={() => startLook(dress.url)}
-                      actionLabel="Preview this dress"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startLook(dress.url)}
-                      className="group relative block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-stone-100 text-left ring-offset-2 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-rose-400"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={dress.url} alt="Uploaded dress" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                      <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">
-                        Preview this dress
-                      </span>
-                    </button>
-                  )}
+              {dresses.map((dress) => (
+                <div key={dress.url} className="pt-5">
+                  <button
+                    type="button"
+                    onClick={() => startLook(dress.url)}
+                    className="group relative block aspect-[3/4] w-full overflow-hidden rounded-2xl bg-stone-100 text-left ring-offset-2 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={dress.url} alt="Uploaded dress" className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+                    <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">
+                      Preview this dress
+                    </span>
+                  </button>
                 </div>
               ))}
               
@@ -426,11 +384,6 @@ async function startLook(dressUrl: string) {
                         if (!resp.ok) throw new Error((await resp.json().catch(() => null))?.error ?? "Could not save your dress. Try again.");
                     }
                     addDress(dressObj);
-                    setNewlyAnalyzedDressUrl(url);
-                    if (dressObj.primary_hex && skinToneHex && undertone) {
-                      const profile: YouCamProfile = { skinHex: skinToneHex, undertone };
-                      setDressAnalyses((current) => ({ ...current, [url]: analyzeDressForSkin(dressObj.primary_hex!, profile) }));
-                    }
                   }}
                   />
                 </div>

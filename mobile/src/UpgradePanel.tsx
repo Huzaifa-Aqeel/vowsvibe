@@ -155,8 +155,8 @@ export function UpgradePanel({ appUserId }: { appUserId?: string } = {}) {
       <div aria-hidden="true" className="absolute -bottom-24 -left-20 h-48 w-48 rounded-full bg-amber-200/10 blur-3xl"/>
       <div className="relative">
         <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold">{selected === "free" ? "Free" : "Wedding Pass"}</p>
-          <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[.14em] ${selected === (entitled ? "pro" : "free") ? "bg-white/10 text-rose-100" : "bg-rose-200 text-rose-950"}`}>
-            {selected === (entitled ? "pro" : "free") ? "Current plan" : "Best for parties"}
+          <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[.14em] ${selected === (entitled ? "pro" : "free") ? "bg-white/10 text-rose-100" : selected === "pro" ? "bg-rose-200 text-rose-950" : "bg-white/10 text-stone-300"}`}>
+            {selected === (entitled ? "pro" : "free") ? "Current plan" : selected === "pro" ? "Best for parties" : "Included with Pro"}
           </span>
         </div>
 

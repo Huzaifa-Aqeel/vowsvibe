@@ -24,6 +24,7 @@ import { useMobileNavigation } from "./useMobileNavigation";
 import { UpgradePanel } from "./UpgradePanel";
 import { clearPurchasesIdentity } from "./platform/purchases";
 import { ProStatusCard } from "./ProStatusCard";
+import { DeleteEventButton } from "@/components/DeleteEventButton";
 
 const LineupCanvas = lazy(() => import("@/components/LineupCanvas").then((module) => ({ default: module.LineupCanvas })));
 async function loadBundledCanvas(): Promise<FabricNamespace> {
@@ -70,7 +71,7 @@ function Dashboard({ revision, navigate, retry }: { revision: number; navigate: 
   if (!result.value) return <Loading/>;
   return <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Your events</h1>{!result.value.events.length && <Action onClick={() => navigate("/events/new")}>Create an event</Action>}<ProStatusCard open={() => navigate("/upgrade")}/>
     {!result.value.events.length && <p className="mt-5 text-sm text-stone-600">Start your first wedding event to set the palette and invite your party.</p>}
-    {result.value.events.map((event) => <article key={event.id} className="mt-4 rounded-3xl border border-stone-200 bg-white p-5"><h2 className="font-serif text-2xl">{event.title}</h2>
+    {result.value.events.map((event) => <article key={event.id} className="relative mt-4 rounded-3xl border border-stone-200 bg-white p-5 pr-14"><div className="absolute right-3 top-3"><DeleteEventButton eventId={event.id} eventTitle={event.title} variant="icon" stayOnPage /></div><h2 className="font-serif text-2xl">{event.title}</h2>
       <p className="my-3 text-xs text-stone-500">{event.event_date ?? "Date to be decided"}</p><Action onClick={() => navigate(`/events/${event.id}`)}>Open {event.title}</Action></article>)}</section>;
 }
 

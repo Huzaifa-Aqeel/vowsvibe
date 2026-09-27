@@ -37,8 +37,7 @@ export interface ParticipantRow {
   created_at: string; updated_at: string;
   skin_tone_hex: string | null; skin_undertone: "warm" | "cool" | "neutral" | null;
   /** From the same YouCam skin-tone-analysis task as skin_tone_hex — read together in one
-   *  call, never a separate request. No longer used by dress-rail scoring (see
-   *  analyzeDressForSkin), kept for the record of what was detected. */
+   *  call, never a separate request. Kept for the record of what was detected. */
   hair_tone_hex: string | null; hair_color_name: string | null;
   selected_dress_url: string | null;
   vto_render_url: string | null;

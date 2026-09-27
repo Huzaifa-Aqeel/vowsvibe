@@ -50,6 +50,12 @@ export function revenueCatProProductIds() {
   return configured?.length ? configured : DEFAULT_PRO_PRODUCT_IDS;
 }
 
+export function revenueCatAllowsSandbox() {
+  // This app currently ships against RevenueCat Test Store. Keep test purchases usable
+  // when the deployment omitted the flag; a future store release can explicitly set false.
+  return process.env.REVENUECAT_ALLOW_SANDBOX?.trim().toLowerCase() !== "false";
+}
+
 function validDate(value: string | null | undefined) {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
@@ -149,7 +155,7 @@ export async function proSubscriptionAccess(userId: string): Promise<ProSubscrip
   return subscriptionAccessFromSubscriber(
     data.subscriber,
     entitlementId,
-    process.env.REVENUECAT_ALLOW_SANDBOX === "true",
+    revenueCatAllowsSandbox(),
     Date.now(),
     revenueCatProProductIds(),
   );

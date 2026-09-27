@@ -3,6 +3,7 @@ import {
   entitlementIsActive,
   groupPreviewAccess,
   proSubscriptionAccess,
+  revenueCatAllowsSandbox,
   subscriptionAccessFromSubscriber,
   type RevenueCatSubscriber,
 } from "../../../src/lib/billing/revenuecat";
@@ -46,6 +47,15 @@ function admin(ownerId = "owner-a") {
 }
 
 describe("server membership verification", () => {
+  it("accepts Test Store purchases by default until a production deployment explicitly disables them", () => {
+    vi.stubEnv("REVENUECAT_ALLOW_SANDBOX", "");
+    expect(revenueCatAllowsSandbox()).toBe(true);
+    vi.stubEnv("REVENUECAT_ALLOW_SANDBOX", "true");
+    expect(revenueCatAllowsSandbox()).toBe(true);
+    vi.stubEnv("REVENUECAT_ALLOW_SANDBOX", "false");
+    expect(revenueCatAllowsSandbox()).toBe(false);
+  });
+
   it("recognizes active, expired, missing, lifetime, and grace-period entitlements", () => {
     expect(entitlementIsActive(subscriber("2026-10-01T00:00:00Z"), "vows_vibes_pro", false, now)).toBe(true);
     expect(entitlementIsActive(subscriber("2026-09-01T00:00:00Z"), "vows_vibes_pro", false, now)).toBe(false);

@@ -581,6 +581,11 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                   <GuideRow dot="bg-amber-400" label="Less Recommended">The color relationship is weaker for your coloring — still wearable, just less flattering.</GuideRow>
                   <GuideRow dot="bg-rose-400" label="Washout Risk">Very close to your own skin tone, so it may blend in rather than stand out.</GuideRow>
                   <p className="pt-1 text-[11px] leading-5 text-stone-500">Dresses are sorted with your best matches first — tap any dress to see the full reasoning.</p>
+                  <p className="border-t border-stone-100 pt-2 text-[9px] font-bold uppercase tracking-wide text-stone-400">Coordinating with the bride&apos;s palette</p>
+                  <GuideRow dot="bg-emerald-400" label="Palette Match">Your dress name is an exact match to one of the bride&apos;s chosen colors.</GuideRow>
+                  <GuideRow dot="bg-rose-400" label="Family Match">A different name, but close enough in actual shade to look coordinated with one of her colors.</GuideRow>
+                  <GuideRow dot="bg-amber-400" label="Related shade">Same color family as one of her picks, but far off from her chosen palette.</GuideRow>
+                  <GuideRow dot="bg-stone-300" label="Different family">A color unrelated to anything in her palette.</GuideRow>
                 </GuidePopover>
               </div>
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">

@@ -1,4 +1,5 @@
 import type { BridalLookView, EventRow, LineupPosition, ParticipantRow } from "@/lib/types";
+import { canExchangeSuggestion } from "@/lib/suggestions/permissions";
 import { demoEvent, demoParticipants } from "./data";
 export const DEMO_STORAGE_KEY = "vows-vibe-mobile-demo-v1";
 export const DEMO_UPDATE_EVENT = "vows-vibe-mobile-demo-update";
@@ -119,11 +120,20 @@ export const demoRequest: typeof fetch = async (input, init) => {
       return json({ dresses: [...state.event.example_dresses.map((d, index) => ({ id: `demo-dress-${index}`, url: d.url, storage_path: d.storage_path ?? "demo", primary_hex: d.primaryHex, color_name: d.colorName })), ...state.dresses.filter((d) => d.participant_id === participant.id)] });
     }
     if (match[2] === "suggestions") {
-      if (method === "GET") return json({ suggestions: state.suggestions.filter((s) => s.to_participant_id === participant.id) });
+      if (method === "GET") return json({ suggestions: state.suggestions
+        .filter((suggestion) => suggestion.from_participant_id === participant.id || suggestion.to_participant_id === participant.id)
+        .flatMap((suggestion) => {
+          const sender = state.participants.find((person) => person.id === suggestion.from_participant_id);
+          const recipient = state.participants.find((person) => person.id === suggestion.to_participant_id);
+          const validDirection = sender && recipient && canExchangeSuggestion(sender.role, recipient.role);
+          return validDirection ? [{ ...suggestion, from_name: sender.name, to_name: recipient.name }] : [];
+        }) });
       if (method === "POST") {
         const target = state.participants.find((p) => p.id === body.to_participant_id);
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!target || target.id === participant.id || !text || text.length > 500) return json({ error: "Choose another person and enter a suggestion." }, 400);
+        const validDirection = canExchangeSuggestion(participant.role, target.role);
+        if (!validDirection) return json({ error: "Suggestions can only be exchanged between the bride and a bridesmaid." }, 400);
         const suggestion: Suggestion = { id: crypto.randomUUID(), text, from_participant_id: participant.id, to_participant_id: target.id, from_name: participant.name, created_at: new Date().toISOString() };
         state.suggestions.unshift(suggestion); save(state); return json({ suggestion }, 201);
       }

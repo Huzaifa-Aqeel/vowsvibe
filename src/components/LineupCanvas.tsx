@@ -12,7 +12,6 @@ import {
   Loader2,
   PanelLeftOpen,
   Save,
-  Sparkles,
   Upload,
   Trash2,
   X,
@@ -326,10 +325,9 @@ const filteredIds = useMemo(() => {
     canvas.defaultCursor = nextEnabled ? "default" : "default";
     canvas.hoverCursor = nextEnabled ? "default" : "default";
     if (nextEnabled) {
-      const targetId = selectedIdRef.current;
       canvas.discardActiveObject?.();
-      selectedIdRef.current = mobileMode && targetId !== bride?.id ? targetId : null;
-      setSelectedId(selectedIdRef.current);
+      selectedIdRef.current = null;
+      setSelectedId(null);
     }
     canvas.requestRenderAll();
     refreshGeometry();
@@ -977,7 +975,7 @@ const filteredIds = useMemo(() => {
           </div>
           <div className="space-y-2 border-t border-stone-200/70 p-4">
             <button type="button" disabled={previewGenerating || !venueDataUrl} onClick={() => void generatePreview()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">
-              {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}{previewGenerating ? "Generating…" : previewUrl ? "Regenerate Preview" : "Generate Preview"}
+              {previewGenerating ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />}{previewGenerating ? "Generating…" : previewUrl ? "Regenerate Preview" : "Generate Preview"}
             </button>
             <button type="button" onClick={() => setPreviewMode(false)} className="min-h-10 w-full text-xs font-semibold text-stone-500">Back to lineup</button>
           </div>
@@ -1173,7 +1171,7 @@ const filteredIds = useMemo(() => {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_24%,rgba(255,255,255,0.96),rgba(250,247,241,0.76)_48%,rgba(226,216,205,0.82)_100%)]" />
         <div className="pointer-events-none absolute inset-x-[8%] bottom-[12%] h-px bg-stone-500/15 shadow-[0_1px_14px_rgba(80,65,55,0.12)]" />
         {!peopleOpen && (
-          <button type="button" onClick={() => setPeopleOpen(true)} className="absolute left-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-white/80 bg-white/90 px-3.5 text-xs font-semibold text-stone-800 shadow-md backdrop-blur-xl transition hover:bg-white">
+          <button type="button" onClick={() => setPeopleOpen(true)} className="lineup-people-toggle absolute left-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-white/80 bg-white/90 px-3.5 text-xs font-semibold text-stone-800 shadow-md backdrop-blur-xl transition hover:bg-white">
             <PanelLeftOpen size={15} /><span>People</span>
           </button>
         )}
@@ -1204,7 +1202,7 @@ const filteredIds = useMemo(() => {
 <SuggestionTools
   eventId={event.id}
   currentParticipantId={bride?.id ?? null}
-  target={selectedParticipant && selectedParticipant.id !== bride?.id ? selectedParticipant : null}
+  participants={participants}
   onOpenChange={syncSuggestionMode}
   request={request}
   subscribeToUpdates={subscribeToUpdates}
@@ -1212,7 +1210,7 @@ const filteredIds = useMemo(() => {
 />
 <div className="lineup-sticky-actions absolute inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-3 border-t border-white/70 bg-[#fffdf9]/80 px-4 pt-3 backdrop-blur-xl sm:px-6">
   <div className="ml-auto flex items-center gap-2">
-    <button type="button" onClick={() => { vibrate(); openGroupPreview(); }} className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"><Sparkles size={15} /> Group Preview</button>
+    <button type="button" onClick={() => { vibrate(); openGroupPreview(); }} className="inline-flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-2.5 text-sm font-semibold text-stone-800 shadow-sm transition active:bg-white sm:hover:bg-white"><ImageIcon size={15} /> Group Preview</button>
     <button
       type="button"
       onClick={() => {

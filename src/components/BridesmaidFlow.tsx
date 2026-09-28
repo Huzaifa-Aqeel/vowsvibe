@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { MobileFittingSteps } from "@/components/MobileFittingSteps";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, Check, Shirt, Camera, Users, ShieldCheck, RotateCcw, ArrowRight, ArrowLeft } from "lucide-react";
+import { Loader2, Check, Shirt, Camera, Users, ShieldCheck, RotateCcw, ArrowRight, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -529,7 +529,10 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                   const paletteBadge = classifyBridalPaletteBadge(d.colorName, d.primaryHex, event.color_palette);
                   const paletteCue = paletteBadge === "family" ? "Family Match" as const
                     : paletteBadge === "same-family" ? "Related shade" as const : null;
-                  return <div key={d.url} className="pt-5">
+                  return <div key={d.url}>
+                    <div className="mb-1 flex min-h-5 items-center">
+                      {paletteCue && <span className={`rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${paletteCue === "Family Match" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{paletteCue}</span>}
+                    </div>
                     <button
                       type="button"
                       disabled={!photoUrl}
@@ -538,7 +541,6 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={d.url} alt={d.label ?? "Dress"} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                      {paletteCue && <span className={`absolute left-2 top-2 rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm ${paletteCue === "Family Match" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{paletteCue}</span>}
                       <span className="absolute inset-x-2 bottom-2 rounded-xl bg-stone-900/90 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">Preview this dress</span>
                     </button>
                   </div>;
@@ -617,7 +619,7 @@ async function startVto(nextDressUrl: string, dressMeta?: DressColorMeta) {
                 <ArrowLeft size={15}/> Back to dresses
               </Button>
             </> : <>
-              <Sparkles className="mx-auto mb-3 animate-pulse text-rose-500" size={28} />
+              <Loader2 className="mx-auto mb-3 animate-spin text-rose-500" size={28} />
               <h2 className="mb-1 font-serif text-xl">Working our magic…</h2>
               <p className="text-sm text-neutral-500">Your photo is private while our AI fits the selected dress. This usually takes a few seconds.</p>
             </>}

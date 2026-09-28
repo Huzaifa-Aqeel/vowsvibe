@@ -21,7 +21,7 @@ export function useMobileNavigation() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = NativeApp.addListener("backButton", () => {
-      const dialog = document.querySelector('.mobile-color-prompt, .mobile-dress-analysis, [role="dialog"]');
+      const dialog = document.querySelector('.mobile-color-prompt, [role="dialog"]');
       const dismiss = dialog?.querySelector<HTMLButtonElement>('button[aria-label^="Close"]')
         ?? [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => /^(Cancel|Cancel upload)$/.test(button.textContent ?? ""));
       if (dismiss) { dismiss.click(); return; }

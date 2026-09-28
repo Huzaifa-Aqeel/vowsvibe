@@ -1,6 +1,5 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
 import type { Undertone } from "@/lib/color/undertone";
 import { UNDERTONE_COLOR_GUIDE, type GuideSwatch } from "@/lib/color/undertone-guide";
 
@@ -27,9 +26,7 @@ export function UndertoneColorGuide({ undertone }: { undertone: Undertone }) {
         </p>
 
         <div className="mt-4">
-          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-            <Sparkles size={12} /> Flattering on you
-          </p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Flattering on you</p>
           <div className="mt-2.5 flex flex-wrap gap-3">
             {guide.flattering.map((swatch) => (
               <SwatchChip key={swatch.name} swatch={swatch} />

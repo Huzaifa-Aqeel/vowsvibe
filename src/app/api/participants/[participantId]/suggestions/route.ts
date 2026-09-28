@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { participantAiPlan } from "@/lib/billing/plan";
 import { RevenueCatUnavailableError } from "@/lib/billing/revenuecat";
+import { canExchangeSuggestion } from "@/lib/suggestions/permissions";
 
 async function authorize(participantId: string, token: string | null) {
   const service = createServiceRoleClient();
@@ -25,33 +26,44 @@ async function authorize(participantId: string, token: string | null) {
   return { ok: false as const, status: 403, message: "Not authorized" };
 }
 
-async function readSuggestions(service: ReturnType<typeof createServiceRoleClient>, participantId: string, currentLookId: string | null) {
-  if (!currentLookId) return [];
+async function readSuggestions(
+  service: ReturnType<typeof createServiceRoleClient>,
+  participant: { id: string; event_id: string },
+) {
   const { data: rows, error } = await service
     .from("participant_suggestions")
-    .select("id,from_participant_id,to_participant_id,text,created_at")
-    .eq("to_participant_id", participantId)
-    .eq("target_look_id", currentLookId)
+    .select("id,from_participant_id,to_participant_id,target_look_id,text,created_at")
+    .eq("event_id", participant.event_id)
+    .or(`from_participant_id.eq.${participant.id},to_participant_id.eq.${participant.id}`)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(100);
   if (error) throw new Error(error.message);
 
-  const senderIds = [...new Set((rows ?? []).map((row) => row.from_participant_id))];
-  if (!senderIds.length) return [];
-  const { data: senders, error: senderError } = await service
+  const { data: party, error: partyError } = await service
     .from("participants")
-    .select("id,name")
-    .in("id", senderIds);
-  if (senderError) throw new Error(senderError.message);
+    .select("id,name,role,status,confirmed_look_id")
+    .eq("event_id", participant.event_id);
+  if (partyError) throw new Error(partyError.message);
 
-  const nameById = new Map((senders ?? []).map((sender) => [sender.id, sender.name]));
-  return (rows ?? []).map((row) => ({
-    id: row.id,
-    text: row.text,
-    created_at: row.created_at,
-    from_participant_id: row.from_participant_id,
-    from_name: nameById.get(row.from_participant_id) ?? "Someone",
-  }));
+  const partyById = new Map((party ?? []).map((person) => [person.id, person]));
+  return (rows ?? []).flatMap((row) => {
+    const sender = partyById.get(row.from_participant_id);
+    const recipient = partyById.get(row.to_participant_id);
+    const brideAndBridesmaid = sender && recipient && canExchangeSuggestion(sender.role, recipient.role);
+
+    // Old cross-bridesmaid records are intentionally hidden. Messages also belong to
+    // the recipient's current confirmed look, matching the existing stale-look behavior.
+    if (!brideAndBridesmaid || recipient.status !== "confirmed" || recipient.confirmed_look_id !== row.target_look_id) return [];
+    return [{
+      id: row.id,
+      text: row.text,
+      created_at: row.created_at,
+      from_participant_id: row.from_participant_id,
+      to_participant_id: row.to_participant_id,
+      from_name: sender.name,
+      to_name: recipient.name,
+    }];
+  });
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ participantId: string }> }) {
@@ -60,7 +72,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ part
   if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
 
   try {
-    const suggestions = await readSuggestions(auth.service, auth.participant.id, auth.participant.confirmed_look_id);
+    const suggestions = await readSuggestions(auth.service, auth.participant);
     return NextResponse.json({ suggestions });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load suggestions" }, { status: 500 });
@@ -101,12 +113,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ par
 
   const { data: target } = await auth.service
     .from("participants")
-    .select("id,event_id,status,confirmed_look_id")
+    .select("id,event_id,role,status,confirmed_look_id")
     .eq("id", targetId)
     .eq("event_id", auth.participant.event_id)
     .maybeSingle();
   if (!target || target.status !== "confirmed" || !target.confirmed_look_id) {
     return NextResponse.json({ error: "That participant is not currently in the confirmed lineup." }, { status: 409 });
+  }
+  const validDirection = canExchangeSuggestion(auth.participant.role, target.role);
+  if (!validDirection) {
+    return NextResponse.json({ error: "Suggestions can only be exchanged between the bride and a bridesmaid." }, { status: 400 });
   }
 
   const { data, error } = await auth.service

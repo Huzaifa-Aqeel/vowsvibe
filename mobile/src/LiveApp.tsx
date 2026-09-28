@@ -119,7 +119,7 @@ function EventScreen({ eventId, screen, revision, navigate, retry }: { eventId: 
     participants={lineup.value.participants} initialPositions={lineup.value.positions} request={clientFetch} fileActions={mobileFileActions} loadCanvas={loadBundledCanvas} onUpgradeRequired={() => navigate("/upgrade")} mobileMode/></Suspense>
     <p className="mobile-studio-caption" role={error ? "alert" : undefined}>{error ?? "Save shares your arrangement with your party."}</p></section>;
   if (screen === "messages") return <section className="mobile-home"><h1 className="font-serif text-3xl">Party suggestions</h1>
-    <p className="mt-3 text-sm text-stone-600">Open your inbox to see suggestions for your confirmed look.</p><div className="mt-6 flex justify-end"><SuggestionTools eventId={event.id} currentParticipantId={bride.id} target={null} request={clientFetch}/></div></section>;
+    <p className="mt-3 text-sm text-stone-600">Choose a bridesmaid to open your private suggestion conversation.</p><div className="mt-6 flex justify-end"><SuggestionTools eventId={event.id} currentParticipantId={bride.id} participants={[bride, ...lineup.value.participants.filter((person) => person.id !== bride.id)]} request={clientFetch}/></div></section>;
   return <section className="mobile-home"><h1 className="font-serif text-3xl">{event.title}</h1><EventSummary event={event}/><div className="space-y-3">
     <Action onClick={() => navigate(`/events/${event.id}/style`)}>Style your bridal look</Action><Action onClick={() => navigate(`/events/${event.id}/lineup`)}>Arrange bridal party</Action>
     <Action onClick={() => navigate(`/events/${event.id}/edit`)}>Edit styling brief</Action></div>

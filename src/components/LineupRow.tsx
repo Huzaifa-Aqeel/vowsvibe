@@ -150,8 +150,6 @@ export function LineupRow({
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const prevRects = useRef(new Map<string, DOMRect>());
   const seenIds = useRef(new Set<string>(initialParticipants.filter((p) => p.status === "confirmed" && p.cutout_url).map((p) => p.id)));
-  const [suggestionTargetId, setSuggestionTargetId] = useState<string | null>(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [horizontalPositionScale, setHorizontalPositionScale] = useState(1);
 
   // Saved x values belong to the bride's composition canvas. The confirmed/public
@@ -250,8 +248,6 @@ export function LineupRow({
     });
   }, [participants]);
 
-  const suggestionTarget = suggestionTargetId ? participants.find((p) => p.id === suggestionTargetId) ?? null : null;
-
   return (
     <div className={expanded ? "flex h-full min-h-0 w-full flex-col" : undefined}>
       {participants.length === 0 ? (
@@ -289,8 +285,7 @@ export function LineupRow({
                   if (el) figureRefs.current.set(p.id, el);
                   else figureRefs.current.delete(p.id);
                 }}
-                className={`absolute flex -translate-x-1/2 touch-manipulation flex-col items-center ${currentParticipantId && suggestionsOpen ? "cursor-pointer" : ""} ${suggestionTargetId === p.id ? "z-[40]" : ""}`}
-                onClick={() => currentParticipantId && suggestionsOpen && setSuggestionTargetId(p.id === currentParticipantId ? null : p.id)}
+                className="absolute flex -translate-x-1/2 flex-col items-center"
                 style={{
                   left: positions[p.id]
                     ? `${(0.5 + (positions[p.id].x - 0.5) * horizontalPositionScale) * 100}%`
@@ -343,11 +338,7 @@ export function LineupRow({
               eventId={eventId}
               currentParticipantId={currentParticipantId}
               currentParticipantToken={currentParticipantToken}
-              target={suggestionTarget}
-              onOpenChange={(open) => {
-                setSuggestionsOpen(open);
-                if (!open) setSuggestionTargetId(null);
-              }}
+              participants={participants}
               className="lineup-chat-controls absolute z-[200]"
             />
           )}

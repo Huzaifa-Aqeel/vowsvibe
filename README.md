@@ -34,6 +34,11 @@ Both the bride and bridesmaids can upload a full-body photo, take a guided skin-
 - Saves and exports the lineup
 - Generates and saves AI group previews
 
+### Bridesmaid-Only Features
+
+- Joins through an invite link without creating an account
+- Sends styling suggestions to other participants
+
 ## Key Features
 
 ### Virtual Try-On & Skin-Tone Analysis
@@ -224,3 +229,7 @@ src/
 ## Note on Color Analysis
 
 Color analysis is intended as guidance, not a strict rule. Lighting, camera accuracy, fabric, surroundings, personal preference, and styling choices can all affect how a color appears in practice.
+
+## Team / Contributors
+
+I built this project solo.

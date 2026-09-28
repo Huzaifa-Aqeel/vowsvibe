@@ -1,8 +1,8 @@
 "use client";
 import { clientFetch as fetch } from "@/lib/platform/runtime";
 
-import { useEffect, useRef, useState } from "react";
-import { MessageCircle, Send, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, MessageCircle, Send, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ParticipantRow } from "@/lib/types";
 
@@ -11,14 +11,16 @@ interface SuggestionItem {
   text: string;
   created_at: string;
   from_participant_id: string;
+  to_participant_id: string;
   from_name: string;
+  to_name: string;
 }
 
 interface Props {
   eventId: string;
   currentParticipantId: string | null;
+  participants: ParticipantRow[];
   currentParticipantToken?: string | null;
-  target: ParticipantRow | null;
   className?: string;
   onOpenChange?: (open: boolean) => void;
   request?: typeof fetch;
@@ -29,8 +31,24 @@ function tokenQuery(token?: string | null) {
   return token ? `?token=${encodeURIComponent(token)}` : "";
 }
 
-export function SuggestionTools({ eventId, currentParticipantId, currentParticipantToken, target, className = "", onOpenChange, request = fetch, subscribeToUpdates }: Props) {
+function messageTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+export function SuggestionTools({
+  eventId,
+  currentParticipantId,
+  participants,
+  currentParticipantToken,
+  className = "",
+  onOpenChange,
+  request = fetch,
+  subscribeToUpdates,
+}: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const dismissedSuggestionIdsRef = useRef<Set<string>>(new Set());
   const [text, setText] = useState("");
@@ -39,6 +57,24 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   const [error, setError] = useState<string | null>(null);
 
   const authQuery = tokenQuery(currentParticipantToken);
+  const currentParticipant = participants.find((person) => person.id === currentParticipantId) ?? null;
+  const conversationTargets = useMemo(() => {
+    if (!currentParticipant) return [];
+    return participants.filter((person) => person.id !== currentParticipant.id && (
+      currentParticipant.role === "bride" ? person.role === "bridesmaid" : person.role === "bride"
+    ));
+  }, [currentParticipant, participants]);
+  const activeTarget = currentParticipant?.role === "bridesmaid"
+    ? conversationTargets[0] ?? null
+    : conversationTargets.find((person) => person.id === selectedTargetId) ?? null;
+  const conversation = activeTarget
+    ? suggestions.filter((suggestion) => (
+      suggestion.from_participant_id === currentParticipantId && suggestion.to_participant_id === activeTarget.id
+    ) || (
+      suggestion.from_participant_id === activeTarget.id && suggestion.to_participant_id === currentParticipantId
+    )).slice().reverse()
+    : [];
+  const incomingCount = suggestions.filter((suggestion) => suggestion.to_participant_id === currentParticipantId).length;
 
   async function refresh() {
     if (!currentParticipantId) return;
@@ -60,6 +96,7 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   useEffect(() => {
     setText("");
     setError(null);
+    setSelectedTargetId(null);
     dismissedSuggestionIdsRef.current = new Set();
     if (!currentParticipantId) {
       setPanelOpen(false);
@@ -101,9 +138,8 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
 
   async function dismissSuggestion(suggestionId: string) {
     const removed = suggestions.find((suggestion) => suggestion.id === suggestionId);
-    if (!removed || !currentParticipantId) return;
+    if (!removed || !currentParticipantId || removed.to_participant_id !== currentParticipantId) return;
 
-    // Remove immediately, then restore the message if permanent deletion fails.
     dismissedSuggestionIdsRef.current = new Set(dismissedSuggestionIdsRef.current).add(suggestionId);
     setSuggestions((current) => current.filter((suggestion) => suggestion.id !== suggestionId));
     setError(null);
@@ -128,14 +164,14 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
   }
 
   async function sendSuggestion() {
-    if (!currentParticipantId || !target || target.id === currentParticipantId || !text.trim() || busy) return;
+    if (!currentParticipantId || !activeTarget || !text.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
       const response = await request(`/api/participants/${currentParticipantId}/suggestions${authQuery}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to_participant_id: target.id, text: text.trim() }),
+        body: JSON.stringify({ to_participant_id: activeTarget.id, text: text.trim() }),
       });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error ?? "Could not send suggestion");
@@ -154,73 +190,108 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
     <div className={`pointer-events-none flex flex-col items-end gap-2 ${className}`}>
       {panelOpen && (
         <div className="suggestion-sheet pointer-events-auto border border-white/80 bg-white/95 p-4 shadow-2xl shadow-stone-900/20 backdrop-blur-2xl">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex items-center gap-2 border-b border-stone-200/70 pb-3">
+            {currentParticipant?.role === "bride" && activeTarget && (
+              <button
+                type="button"
+                aria-label="Back to bridesmaids"
+                onClick={() => { setSelectedTargetId(null); setText(""); setError(null); }}
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-stone-500 transition active:bg-stone-100 sm:hover:bg-stone-100"
+              >
+                <ArrowLeft size={17}/>
+              </button>
+            )}
+            <div className="min-w-0 flex-1">
               <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-rose-700">Suggestions</p>
               <p className="truncate text-sm font-semibold text-stone-900">
-                {target && target.id !== currentParticipantId ? `About ${target.name}` : "Messages"}
+                {activeTarget ? activeTarget.name : "Bridesmaids"}
               </p>
             </div>
             <button
               type="button"
               aria-label="Minimize suggestions"
               title="Minimize suggestions"
-              onClick={() => { setPanelOpen(false); onOpenChange?.(false); }}
-              className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-500 transition active:bg-stone-100 active:text-stone-900 sm:hover:bg-stone-100 sm:hover:text-stone-900"
+              onClick={() => { setPanelOpen(false); setSelectedTargetId(null); onOpenChange?.(false); }}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-stone-500 transition active:bg-stone-100 active:text-stone-900 sm:hover:bg-stone-100 sm:hover:text-stone-900"
             >
-              <X size={15} />
+              <X size={15}/>
             </button>
           </div>
 
-          {suggestions.length > 0 && (
-            <div className="mt-3 space-y-1.5 border-t border-stone-200/70 pt-3">
-              {suggestions.slice(0, 3).map((suggestion) => (
-                <div key={suggestion.id} className="group flex items-start gap-2 rounded-xl bg-stone-50 px-2.5 py-2 text-[11px] leading-relaxed text-stone-700">
-                  <div className="min-w-0 flex-1">
-                    <span className="font-semibold text-stone-900">{suggestion.from_name}:</span> {suggestion.text}
-                  </div>
+          {currentParticipant?.role === "bride" && !activeTarget ? (
+            <div className="mt-3 space-y-1.5">
+              {conversationTargets.map((person) => {
+                const last = suggestions.find((suggestion) => (
+                  suggestion.from_participant_id === person.id && suggestion.to_participant_id === currentParticipantId
+                ) || (
+                  suggestion.from_participant_id === currentParticipantId && suggestion.to_participant_id === person.id
+                ));
+                return <button
+                  key={person.id}
+                  type="button"
+                  onClick={() => { setSelectedTargetId(person.id); setText(""); setError(null); }}
+                  className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2 text-left transition active:bg-rose-50 sm:hover:border-rose-100 sm:hover:bg-rose-50"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-rose-100 font-serif text-sm text-rose-900">{person.name.trim().charAt(0).toUpperCase() || "B"}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-stone-900">{person.name}</span>
+                    <span className="block truncate text-[11px] text-stone-500">{last ? `${last.from_participant_id === currentParticipantId ? "You: " : ""}${last.text}` : "Start a private suggestion"}</span>
+                  </span>
+                  {last && <span className="shrink-0 text-[9px] text-stone-400">{messageTime(last.created_at)}</span>}
+                </button>;
+              })}
+              {conversationTargets.length === 0 && <p className="rounded-2xl bg-stone-50 px-4 py-5 text-center text-xs leading-5 text-stone-500">Confirmed bridesmaids will appear here.</p>}
+            </div>
+          ) : activeTarget ? (
+            <>
+              <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                {conversation.map((suggestion) => {
+                  const sentByCurrent = suggestion.from_participant_id === currentParticipantId;
+                  return <div key={suggestion.id} className={`flex ${sentByCurrent ? "justify-end" : "justify-start"}`}>
+                    <div className={`group relative max-w-[86%] rounded-2xl px-3 py-2 text-xs leading-5 ${sentByCurrent ? "rounded-br-md bg-stone-900 text-white" : "rounded-bl-md bg-stone-100 text-stone-800"}`}>
+                      <p>{suggestion.text}</p>
+                      <div className={`mt-1 flex items-center gap-1.5 text-[9px] ${sentByCurrent ? "justify-end text-stone-300" : "text-stone-400"}`}>
+                        <span>{messageTime(suggestion.created_at)}</span>
+                        {!sentByCurrent && (
+                          <button type="button" aria-label="Dismiss suggestion" title="Dismiss suggestion" onClick={() => void dismissSuggestion(suggestion.id)} className="grid h-6 w-6 place-items-center rounded-full transition active:bg-white sm:hover:bg-white">
+                            <X size={10}/>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>;
+                })}
+                {!loading && conversation.length === 0 && <p className="py-5 text-center text-xs text-stone-400">No suggestions yet. Start the conversation below.</p>}
+                {loading && conversation.length === 0 && <p className="py-5 text-center text-xs text-stone-400">Loading…</p>}
+              </div>
+
+              <div className="mt-3 border-t border-stone-200/70 pt-3">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={text}
+                    onChange={(event) => setText(event.target.value.slice(0, 500))}
+                    rows={2}
+                    maxLength={500}
+                    placeholder={`Write to ${activeTarget.name}…`}
+                    className="min-h-[58px] flex-1 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-stone-800 outline-none placeholder:text-stone-400 focus:border-rose-300"
+                  />
                   <button
                     type="button"
-                    aria-label="Dismiss suggestion"
-                    title="Dismiss suggestion"
-                    onClick={() => void dismissSuggestion(suggestion.id)}
-                    className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full text-stone-400 transition active:bg-white active:text-stone-700 sm:hover:bg-white sm:hover:text-stone-700"
+                    disabled={busy || !text.trim()}
+                    onClick={() => void sendSuggestion()}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-stone-900 text-white shadow-sm transition active:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-40 sm:hover:bg-rose-950"
+                    title={`Send suggestion to ${activeTarget.name}`}
+                    aria-label={`Send suggestion to ${activeTarget.name}`}
                   >
-                    <X size={11} />
+                    <Send size={15}/>
                   </button>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {target && target.id !== currentParticipantId ? (
-            <div className="mt-3 border-t border-stone-200/70 pt-3">
-              <p className="mb-2 text-[10px] text-stone-500">Send a suggestion about <span className="font-semibold text-stone-800">{target.name}</span></p>
-              <div className="flex items-end gap-2">
-                <textarea
-                  value={text}
-                  onChange={(event) => setText(event.target.value.slice(0, 500))}
-                  rows={2}
-                  maxLength={500}
-                  placeholder="Any helpful thought…"
-                  className="min-h-[58px] flex-1 resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-stone-800 outline-none placeholder:text-stone-400 focus:border-rose-300"
-                />
-                <button
-                  type="button"
-                  disabled={busy || !text.trim()}
-                  onClick={() => void sendSuggestion()}
-                  className="grid h-11 w-11 shrink-0 touch-manipulation place-items-center rounded-full bg-stone-900 text-white shadow-sm transition active:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-40 sm:hover:bg-rose-950"
-                  title={`Send suggestion about ${target.name}`}
-                >
-                  <Send size={15} />
-                </button>
               </div>
-            </div>
+            </>
           ) : (
-            <p className="mt-3 border-t border-stone-200/70 pt-3 text-xs text-stone-500">Select another person in the lineup to start a suggestion.</p>
+            <p className="mt-3 rounded-2xl bg-stone-50 px-4 py-5 text-center text-xs leading-5 text-stone-500">The bride will appear here after confirming her look.</p>
           )}
 
-          {loading && suggestions.length === 0 && <p className="mt-2 text-[10px] text-stone-400">Loading…</p>}
           {error && <p className="mt-2 text-[10px] font-medium text-red-600">{error}</p>}
         </div>
       )}
@@ -233,14 +304,15 @@ export function SuggestionTools({ eventId, currentParticipantId, currentParticip
         onClick={() => {
           const nextOpen = !panelOpen;
           setPanelOpen(nextOpen);
+          if (nextOpen && currentParticipant?.role === "bride") setSelectedTargetId(null);
           onOpenChange?.(nextOpen);
         }}
-        className="pointer-events-auto relative grid h-14 w-14 touch-manipulation place-items-center rounded-full border border-white/70 bg-stone-900 text-white shadow-xl shadow-stone-900/25 transition active:bg-rose-950 sm:hover:-translate-y-0.5 sm:hover:bg-rose-950"
+        className="pointer-events-auto relative grid h-14 w-14 place-items-center rounded-full border border-white/70 bg-stone-900 text-white shadow-xl shadow-stone-900/25 transition active:bg-rose-950 sm:hover:-translate-y-0.5 sm:hover:bg-rose-950"
       >
-        <MessageCircle size={22} />
-        {suggestions.length > 0 && (
+        <MessageCircle size={22}/>
+        {incomingCount > 0 && (
           <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-rose-600 px-1 text-[9px] font-bold text-white">
-            {suggestions.length > 99 ? "99+" : suggestions.length}
+            {incomingCount > 99 ? "99+" : incomingCount}
           </span>
         )}
       </button>

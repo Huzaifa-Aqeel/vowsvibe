@@ -4,7 +4,7 @@ import { clientFetch as fetch, isMobileRuntime } from "@/lib/platform/runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { UploadCloud, Loader2, X, Sparkles, Check } from "lucide-react";
+import { UploadCloud, Loader2, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -183,8 +183,7 @@ export function DressDropzone({
 
           {colorPromptOpen && !isUploading && renderColorPrompt(
             <div role="dialog" aria-modal="true" aria-label="Choose the dress color" className={`${isMobileRuntime() ? "mobile-color-prompt" : "absolute inset-x-2 bottom-2"} rounded-2xl border border-white/20 bg-black/90 p-3 text-white shadow-xl backdrop-blur-md`}>
-              <div className="mb-2 flex items-center gap-2">
-                <Sparkles size={13} className="text-white" />
+              <div className="mb-2">
                 <p className="text-[11px] font-semibold">Which color palette is this dress?</p>
               </div>
               <div className="flex gap-2">

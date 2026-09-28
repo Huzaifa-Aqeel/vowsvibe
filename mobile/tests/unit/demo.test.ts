@@ -13,11 +13,13 @@ describe("isolated mobile demo backend", () => {
     expect(readDemoState().positions["demo-person-1"].x).toBe(.42);
     resetDemo(); expect(readDemoState().positions["demo-person-1"].x).toBe(.3);
   });
-  it("shows suggestions only in the intended recipient's demo inbox", async () => {
+  it("keeps bride and bridesmaid messages in one conversation and blocks cross-bridesmaid suggestions", async () => {
     expect((await demoRequest("/api/participants/demo-person-0/suggestions", { method: "POST", body: JSON.stringify({ to_participant_id: "demo-person-1", text: "Love the dusty rose!" }) })).status).toBe(201);
+    const bride = await (await demoRequest("/api/participants/demo-person-0/suggestions")).json();
     const target = await (await demoRequest("/api/participants/demo-person-1/suggestions")).json();
     const other = await (await demoRequest("/api/participants/demo-person-2/suggestions")).json();
-    expect(target.suggestions).toHaveLength(1); expect(other.suggestions).toHaveLength(0);
+    expect(bride.suggestions).toHaveLength(1); expect(target.suggestions).toHaveLength(1); expect(other.suggestions).toHaveLength(0);
+    expect((await demoRequest("/api/participants/demo-person-1/suggestions", { method: "POST", body: JSON.stringify({ to_participant_id: "demo-person-2", text: "Cross-party message" }) })).status).toBe(400);
     expect((await demoRequest("/api/participants/demo-person-2/suggestions", { method: "DELETE", body: JSON.stringify({ suggestion_id: target.suggestions[0].id }) })).status).toBe(404);
   });
   it("never forwards production requests", async () => {

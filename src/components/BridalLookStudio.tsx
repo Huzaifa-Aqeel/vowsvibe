@@ -4,7 +4,7 @@ import { MobileFittingSteps } from "@/components/MobileFittingSteps";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ImagePlus, Loader2, RotateCcw, ShieldCheck, WandSparkles } from "lucide-react";
+import { Check, ImagePlus, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DressDropzone } from "@/components/DressDropzone";
@@ -248,7 +248,7 @@ async function startLook(dressUrl: string) {
       {state === "processing" ? (
         <Card className="mx-auto max-w-lg border-stone-100 bg-[#fcfaf7] py-16 text-center shadow-none">
           <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full bg-rose-100 text-rose-700">
-            <WandSparkles className="animate-pulse" size={25} />
+            <Loader2 className="animate-spin" size={25} />
           </div>
           <h3 className="font-serif text-2xl text-stone-900">Styling your preview</h3>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-stone-600">

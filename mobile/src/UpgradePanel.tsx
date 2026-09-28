@@ -3,14 +3,14 @@ import { App as NativeApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import {
   Check,
+  Camera,
   Crown,
   HeartHandshake,
   Images,
   Loader2,
   Palette,
-  Sparkles,
+  Shirt,
   Users,
-  WandSparkles,
 } from "lucide-react";
 import { Purchases, PURCHASES_ERROR_CODE, type CustomerInfo, type PurchasesPackage } from "@revenuecat/purchases-capacitor";
 import { clientFetch } from "@/lib/platform/runtime";
@@ -31,14 +31,14 @@ async function backendHasPro(signal?: AbortSignal) {
 
 const freeFeatures: Feature[] = [
   { icon: <Palette size={17}/>, text: "One wedding and two dress uploads" },
-  { icon: <WandSparkles size={17}/>, text: "Two successful AI try-ons for the bride" },
-  { icon: <Sparkles size={17}/>, text: "One saved skin-tone analysis for the bride" },
+  { icon: <Shirt size={17}/>, text: "Two successful AI try-ons for the bride" },
+  { icon: <Camera size={17}/>, text: "One saved skin-tone analysis for the bride" },
   { icon: <Images size={17}/>, text: "A private bridal lookbook" },
 ];
 
 const proFeatures: Feature[] = [
   { icon: <Users size={17}/>, text: "The bride and every invited bridesmaid" },
-  { icon: <WandSparkles size={17}/>, text: "Eight successful AI try-ons per participant" },
+  { icon: <Shirt size={17}/>, text: "Eight successful AI try-ons per participant" },
   { icon: <Palette size={17}/>, text: "Unlimited dress uploads and one skin-tone analysis each" },
   { icon: <Images size={17}/>, text: "Group previews, lineup exports and saved arrangements" },
   { icon: <HeartHandshake size={17}/>, text: "Party suggestions and shared collaboration" },
@@ -155,9 +155,9 @@ export function UpgradePanel({ appUserId }: { appUserId?: string } = {}) {
       <div aria-hidden="true" className="absolute -bottom-24 -left-20 h-48 w-48 rounded-full bg-amber-200/10 blur-3xl"/>
       <div className="relative">
         <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold">{selected === "free" ? "Free" : "Wedding Pass"}</p>
-          <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[.14em] ${selected === (entitled ? "pro" : "free") ? "bg-white/10 text-rose-100" : selected === "pro" ? "bg-rose-200 text-rose-950" : "bg-white/10 text-stone-300"}`}>
-            {selected === (entitled ? "pro" : "free") ? "Current plan" : selected === "pro" ? "Best for parties" : "Included with Pro"}
-          </span>
+          {(selected === (entitled ? "pro" : "free") || selected === "pro") && <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[.14em] ${selected === (entitled ? "pro" : "free") ? "bg-white/10 text-rose-100" : "bg-rose-200 text-rose-950"}`}>
+            {selected === (entitled ? "pro" : "free") ? "Current plan" : "Best for parties"}
+          </span>}
         </div>
 
         <h2 className="mt-8 font-serif text-3xl">{selected === "free" ? "Style your own bridal look" : "Bring the whole party in"}</h2>
@@ -173,7 +173,7 @@ export function UpgradePanel({ appUserId }: { appUserId?: string } = {}) {
           {entitled ? "Free plan included" : "Your current plan"}
         </button> : <div className="mt-7 space-y-3">
           {packages.map((aPackage) => <button key={aPackage.identifier} type="button" disabled={busy || transaction || entitled} onClick={() => void transact(aPackage)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-rose-200 px-4 py-3 text-sm font-bold text-rose-950 shadow-lg shadow-rose-950/20 disabled:opacity-50">
-            {transaction ? <Loader2 size={16} className="animate-spin"/> : entitled ? <Check size={16}/> : <Sparkles size={16}/>}
+            {transaction ? <Loader2 size={16} className="animate-spin"/> : entitled ? <Check size={16}/> : <Crown size={16}/>}
             {entitled ? "Wedding Pass active" : transaction ? "Activating Wedding Pass…" : `Get the Wedding Pass · ${aPackage.product.priceString}`}
           </button>)}
           {!packages.length && <button type="button" disabled className="min-h-12 w-full rounded-full bg-white/10 px-4 text-sm font-semibold text-stone-400">{busy ? "Loading Wedding Pass…" : entitled ? "Wedding Pass active" : "Purchase unavailable"}</button>}

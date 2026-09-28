@@ -34,8 +34,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid #be617c; outline
   .mobile-app .min-h-screen { min-height: calc(100dvh - 115px); }
 }
 .mobile-app .group .opacity-0 { opacity: 1; }
-.mobile-app .dress-analysis-card__front > div { opacity: 1; }
-.mobile-app .dress-analysis-card button, .mobile-app .mobile-flow-page button { min-height: 44px; }
+.mobile-app .mobile-flow-page button { min-height: 44px; }
 .mobile-app textarea, .mobile-app input, .mobile-app select { font-size: 16px; }
 .mobile-app .suggestion-sheet { position: fixed; inset: auto env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); width: auto; max-height: min(72dvh, 34rem); z-index: 300; }
 .mobile-dialog-open { overflow: hidden; }
@@ -46,6 +45,10 @@ button:focus-visible, select:focus-visible { outline: 2px solid #be617c; outline
 .mobile-home fieldset { min-inline-size: 0; }
 .mobile-app .photo-flip-card { max-width: 340px; margin: 0 auto; width: 100%; }
 .mobile-app .photo-flip-card img { object-fit: contain; }
+.mobile-app .auth-layout-grid { display: block; }
+.mobile-app .auth-layout-hero,
+.mobile-app .auth-layout-inline-brand { display: none !important; }
+.mobile-app .auth-layout-inline-brand-row { justify-content: flex-end; }
 .mobile-fitting-steps { display: flex; gap: .5rem; margin-bottom: 1rem; }
 .mobile-fitting-steps button { flex: 1; min-height: 44px; padding: .5rem; border: 1px solid #e8e2db; border-radius: 999px; background: white; font-size: 12px; font-weight: 600; }
 .mobile-app [data-fitting-photo], .mobile-app [data-fitting-dresses] { scroll-margin-top: 1rem; }
@@ -53,13 +56,14 @@ button:focus-visible, select:focus-visible { outline: 2px solid #be617c; outline
 .mobile-color-prompt { position: fixed; z-index: 350; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: var(--mobile-keyboard-inset, 0px); padding: 1.25rem; padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)); }
 .mobile-color-prompt input { font-size: 16px; }
 .mobile-color-prompt button { min-height: 44px; }
-.mobile-app .dress-analysis-card__inner.is-flipped { position: relative; inset: auto; width: 100%; height: 100%; padding: 0; display: block; z-index: auto; transform: none; background: none; backdrop-filter: none; }
-.mobile-dress-analysis { position: fixed; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); width: calc(100dvw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); z-index: 350; transform: none; pointer-events: auto; border-radius: 0; }
-.mobile-dress-analysis button { min-height: 44px; }
-.mobile-dress-analysis > button { min-width: 44px; opacity: 1; }
 @media (orientation: landscape) {
   .mobile-studio-container .lineup-sticky-actions { display: none; }
   .mobile-studio-container .lineup-canvas-viewport { padding-bottom: 0; }
+  .mobile-studio-container .lineup-people-panel:not(.lineup-preview-settings),
+  .mobile-studio-container .lineup-people-scrim,
+  .mobile-studio-container .lineup-people-toggle,
+  .mobile-app .lineup-chat-controls,
+  .mobile-app .lineup-suggestions-controls { display: none !important; }
 }
 @media (orientation: landscape) and (max-height: 560px) {
   .mobile-studio-container [data-preview-mode="true"] { flex-direction: row; }

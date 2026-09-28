@@ -23,7 +23,6 @@ async function loadBundledCanvas() { return window.fabric!; }
 export function DemoApp() {
   const [path, setPath] = useState(window.location.pathname);
   const [revision, setRevision] = useState(0);
-  const [inboxId, setInboxId] = useState(demoParticipants[1].id);
   const studio = path === `/events/${demoEvent.id}/lineup`;
   const knownRoute = ["/", "/login", "/dashboard", "/events/new", `/events/${demoEvent.id}`, `/events/${demoEvent.id}/style`, `/events/${demoEvent.id}/lineup`, "/invite/demo", "/messages", "/upgrade"].includes(path);
   const navigation = useMemo(() => createNavigation(setPath, () => setRevision((v) => v + 1)), []);
@@ -39,7 +38,7 @@ export function DemoApp() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = NativeApp.addListener("backButton", () => {
-      const dialog = document.querySelector('.mobile-color-prompt, .mobile-dress-analysis, [role="dialog"][aria-label="Layer controls"]');
+      const dialog = document.querySelector('.mobile-color-prompt, [role="dialog"][aria-label="Layer controls"]');
       const dismiss = dialog?.querySelector<HTMLButtonElement>('button[aria-label^="Close"]') ?? [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent === "Cancel upload");
       if (dismiss) { dismiss.click(); return; }
       if (navigation.canGoBack()) navigation.back(); else void NativeApp.minimizeApp();
@@ -65,7 +64,7 @@ export function DemoApp() {
     {path === `/events/${demoEvent.id}` && <section className="mobile-home"><h1 className="font-serif text-3xl">{event.title}</h1><EventSummary event={event}/><div className="space-y-3">{button("Style your bridal look", `/events/${event.id}/style`)}{button("Arrange bridal party", `/events/${event.id}/lineup`)}</div></section>}
     {studio && <section className="mobile-studio-container" aria-label="Mobile compose studio"><LineupCanvas key={revision} event={event} participants={state.participants} initialPositions={state.positions} request={demoRequest} fileActions={mobileFileActions} loadCanvas={loadBundledCanvas} subscribeToUpdates={subscribeToDemoUpdates} mobileMode/><p className="mobile-studio-caption">Save stays on this device · Tap a name to select overlapping people.</p></section>}
     {path === "/invite/demo" && <section className="mobile-flow-page"><BridesmaidFlow key={revision} event={event}/></section>}
-    {path === "/messages" && <section className="mobile-home"><h1 className="font-serif text-3xl">Party suggestions</h1><p className="mt-2 text-sm leading-6 text-stone-600">Send from the bride in the studio, then switch to the recipient here. This is a local demo, not Supabase traffic.</p><label className="mt-5 block text-xs font-semibold">View demo inbox<select value={inboxId} onChange={(e) => setInboxId(e.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-stone-200 bg-white px-3 text-sm">{state.participants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label><div className="mt-8 flex justify-end"><SuggestionTools key={inboxId} eventId={event.id} currentParticipantId={inboxId} target={null} request={demoRequest} subscribeToUpdates={subscribeToDemoUpdates}/></div></section>}
+    {path === "/messages" && <section className="mobile-home"><h1 className="font-serif text-3xl">Party suggestions</h1><p className="mt-2 text-sm leading-6 text-stone-600">Choose a bridesmaid to open the local demo conversation.</p><div className="mt-8 flex justify-end"><SuggestionTools eventId={event.id} currentParticipantId={demoParticipants[0].id} participants={state.participants} request={demoRequest} subscribeToUpdates={subscribeToDemoUpdates}/></div></section>}
     {path === "/upgrade" && <UpgradePanel/>}
     {!knownRoute && <section className="mobile-not-found"><h1 className="font-serif text-3xl">This link is not connected yet</h1><p className="my-4 text-sm leading-6 text-stone-600">This build supports only the local demo event. Real wedding invites and account callbacks need the cloud integration; we won&apos;t open an unrelated demo in their place.</p>{button("Open local demo", "/")}</section>}
   </main></NavigationContext.Provider>;

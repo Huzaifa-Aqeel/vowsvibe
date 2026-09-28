@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeftRight, Check, Sparkles } from "lucide-react";
+import { ArrowLeftRight, Camera, Check } from "lucide-react";
 import { DressDropzone } from "@/components/DressDropzone";
 import { SelfieUpload, type SkinToneResult } from "@/components/SelfieUpload";
 import { cn } from "@/lib/utils";
@@ -97,7 +97,7 @@ export function PhotoFlipCard({
           {photoUrl && <Check size={11} />} Full-body photo
         </span>
         <span className={cn("flex items-center gap-1", skinToneCaptured && "text-emerald-600")}>
-          {skinToneCaptured ? <Check size={11} /> : <Sparkles size={11} />} Skin tone selfie
+          {skinToneCaptured ? <Check size={11} /> : <Camera size={11} />} Skin tone selfie
         </span>
       </div>
     </div>

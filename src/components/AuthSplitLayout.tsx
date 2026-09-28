@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Sparkles, Shirt, Camera, Users, ArrowRight } from "lucide-react";
+import { Shirt, Camera, Users, ArrowRight } from "lucide-react";
 import Image from "next/image";
 
 type AuthSplitLayoutProps = {
@@ -37,8 +37,8 @@ export function AuthSplitLayout({
 
   return (
     <main className="min-h-screen bg-[#f8f5f1] text-stone-900">
-      <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="relative hidden overflow-hidden bg-stone-950 px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between xl:px-16">
+      <div className="auth-layout-grid grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
+        <section className="auth-layout-hero relative hidden overflow-hidden bg-stone-950 px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between xl:px-16">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(244,185,195,0.18),transparent_38%),radial-gradient(circle_at_85%_75%,rgba(255,255,255,0.08),transparent_35%)]" />
           <div className="relative">
 <div className="flex justify-center">
@@ -69,8 +69,8 @@ export function AuthSplitLayout({
         </section>
         <section className="flex min-h-screen items-center justify-center px-5 py-8 sm:px-8">
           <div className="w-full max-w-md">
-            <div className="mb-8 flex items-center justify-between lg:hidden">
-              <span className="font-serif text-xl">Vows &amp; Vibe</span>
+            <div className="auth-layout-inline-brand-row mb-8 flex items-center justify-between lg:hidden">
+              <span className="auth-layout-inline-brand font-serif text-xl">Vows &amp; Vibe</span>
               <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-stone-400">{eyebrow}</span>
             </div>
             {children}

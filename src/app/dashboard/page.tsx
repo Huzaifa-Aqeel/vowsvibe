@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,18 +26,17 @@ export default async function DashboardPage() {
         <div>
           <h1 className="font-serif text-3xl">Your events</h1>
         </div>
-        {!events?.length && (
-          <Link href="/events/new">
-            <Button>
-              <Plus size={16} /> New event
-            </Button>
-          </Link>
-        )}
       </div>
 
       {!events?.length ? (
-        <Card className="text-center text-neutral-500">
-          No events yet — create your first wedding party lineup.
+        <Card className="px-6 py-10 text-center">
+          <h2 className="font-serif text-2xl text-stone-900">Create your wedding</h2>
+          <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-stone-500">
+            Set your palette and styling direction, then invite your bridal party.
+          </p>
+          <Link href="/events/new" className="mt-6 inline-flex">
+            <Button size="lg">Create event</Button>
+          </Link>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">

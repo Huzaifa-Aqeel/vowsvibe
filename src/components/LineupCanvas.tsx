@@ -210,6 +210,7 @@ export function LineupCanvas({ event, participants, initialPositions, request = 
   const [peopleOpen, setPeopleOpen] = useState(!mobileMode);
   const [canvasReady, setCanvasReady] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [previewSetup, setPreviewSetup] = useState(!event.group_preview_path);
   const [venueDataUrl, setVenueDataUrl] = useState<string | null>(event.group_preview_venue_path ?? null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(event.group_preview_path ?? null);
   const [generatedPreview, setGeneratedPreview] = useState<string | null>(null);
@@ -765,6 +766,13 @@ const filteredIds = useMemo(() => {
       if (!response.ok) throw new Error(body.error ?? "Could not generate preview");
       setPreviewUrl(body.image);
       setGeneratedPreview(body.image);
+      if (mobileMode) {
+        setPreviewSetup(false);
+        setPreviewSaving(true);
+        const savedUrl = await persistPreview(body.image);
+        setPreviewUrl(savedUrl);
+        setPreviewSaved(true);
+      }
     } catch (previewError) {
       setError(
         previewError instanceof DOMException && previewError.name === "TimeoutError"
@@ -773,6 +781,7 @@ const filteredIds = useMemo(() => {
       );
     } finally {
       setPreviewGenerating(false);
+      setPreviewSaving(false);
     }
   }
 
@@ -783,6 +792,7 @@ const filteredIds = useMemo(() => {
       canvas.requestRenderAll();
       lineupSnapshotRef.current = canvas.toDataURL({ format: "png", multiplier: 1 });
     }
+    setPreviewSetup(!previewUrl);
     setPreviewMode(true);
     setPeopleOpen(false);
   }
@@ -802,21 +812,26 @@ const filteredIds = useMemo(() => {
     });
   }
 
+  async function persistPreview(source: string) {
+    const image = await previewAsDataUrl(source);
+    const response = await request(`/api/events/${event.id}/group-preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", image }),
+    });
+    const body = await response.json();
+    if (response.status === 402) onUpgradeRequired?.();
+    if (!response.ok) throw new Error(body.error ?? "Could not save preview");
+    return body.previewUrl as string;
+  }
+
   async function savePreview() {
     if (!generatedPreview) return;
     setPreviewSaving(true);
     setError(null);
     try {
-      const image = await previewAsDataUrl(generatedPreview);
-      const response = await request(`/api/events/${event.id}/group-preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", image }),
-      });
-      const body = await response.json();
-      if (response.status === 402) onUpgradeRequired?.();
-      if (!response.ok) throw new Error(body.error ?? "Could not save preview");
-      setPreviewUrl(body.previewUrl);
+      const savedUrl = await persistPreview(generatedPreview);
+      setPreviewUrl(savedUrl);
       setPreviewSaved(true);
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : "Could not save preview");
@@ -941,12 +956,12 @@ const filteredIds = useMemo(() => {
   }
 
   return (
-    <div ref={stageRef} data-mobile-studio={mobileMode || undefined} data-canvas-ready={canvasReady} data-preview-mode={previewMode || undefined} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
+    <div ref={stageRef} data-mobile-studio={mobileMode || undefined} data-canvas-ready={canvasReady} data-preview-mode={previewMode || undefined} data-preview-setup={mobileMode && previewMode && previewSetup || undefined} data-preview-result={mobileMode && previewMode && !previewSetup && !!previewUrl || undefined} className="lineup-studio-shell relative flex min-w-0 overflow-hidden rounded-[1.75rem] border border-stone-200/80 bg-[#f4eee6] shadow-[0_20px_60px_-32px_rgba(41,32,27,0.45)]">
       {peopleOpen && !previewMode && (
         <button type="button" aria-label="Close People panel" onClick={() => setPeopleOpen(false)} className="lineup-people-scrim absolute inset-0 z-[70] hidden bg-stone-950/20 backdrop-blur-[2px]" />
       )}
 
-      {previewMode && (
+      {previewMode && (!mobileMode || previewSetup || !previewUrl) && (
         <aside className="lineup-preview-settings lineup-people-panel relative z-[80] flex w-[300px] shrink-0 flex-col border-r border-stone-200/80 bg-[#fffdf9]/95">
           <div className="border-b border-stone-200/70 px-5 py-4">
             <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-rose-800">Compose Studio</p>
@@ -1159,7 +1174,19 @@ const filteredIds = useMemo(() => {
         <p className="border-t border-stone-200/70 px-5 py-3 text-[10px] leading-4 text-stone-400">Drag a person onto the studio, or select them to arrange layers.</p>
       </aside>
 
-      {previewMode && (
+      {previewMode && mobileMode && !previewSetup && previewUrl && (
+        <div className="lineup-preview-scene flex min-h-0 min-w-0 flex-1 flex-col bg-[#e9e1d8] p-4">
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+            <img src={previewUrl} alt="Bridal party group preview" className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" />
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-3 pt-4">
+            <button type="button" onClick={() => void downloadPreview()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-xs font-semibold text-stone-800"><Download size={15}/>Download Preview</button>
+            <button type="button" disabled={previewGenerating || previewSaving} onClick={() => { setError(null); setPreviewSetup(true); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-stone-900 px-3 text-xs font-semibold text-white disabled:opacity-60"><ImageIcon size={15}/>Regenerate</button>
+          </div>
+        </div>
+      )}
+
+      {previewMode && !mobileMode && (
         <div className="lineup-preview-scene relative flex min-h-[520px] min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#e9e1d8] p-5 pb-24 sm:p-8 sm:pb-24">
           {previewUrl ? <img src={previewUrl} alt="Generated bridal party group preview" className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" /> : <div className="max-w-sm text-center text-stone-500"><ImageIcon className="mx-auto mb-3" size={30} /><p className="font-serif text-xl text-stone-800">Your group preview will appear here</p><p className="mt-2 text-xs leading-5">Choose a venue and finishing options, then generate a polished portrait.</p></div>}
           {previewGenerating && <div className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-stone-700 shadow"><Loader2 size={14} className="animate-spin" /> Creating preview</div>}

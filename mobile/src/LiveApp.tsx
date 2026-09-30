@@ -69,10 +69,23 @@ function Dashboard({ revision, navigate, retry }: { revision: number; navigate: 
   const result = useRemote<{ events: EventRow[] }>("/api/events", revision);
   if (result.error) return <ResourceError message={result.error} retry={retry}/>;
   if (!result.value) return <Loading/>;
-  return <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Your events</h1>{!result.value.events.length && <Action onClick={() => navigate("/events/new")}>Create an event</Action>}<ProStatusCard open={() => navigate("/upgrade")}/>
-    {!result.value.events.length && <p className="mt-5 text-sm text-stone-600">Start your first wedding event to set the palette and invite your party.</p>}
-    {result.value.events.map((event) => <article key={event.id} className="relative mt-4 rounded-3xl border border-stone-200 bg-white p-5 pr-14"><div className="absolute right-3 top-3"><DeleteEventButton eventId={event.id} eventTitle={event.title} variant="icon" stayOnPage /></div><h2 className="font-serif text-2xl">{event.title}</h2>
+  const events = result.value.events;
+  return <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">{events.length ? "Your events" : "Create your wedding"}</h1>
+    {!events.length && <div className="mb-5 rounded-3xl border border-stone-200 bg-white p-6 text-center"><p className="mb-5 text-sm leading-6 text-stone-600">Set your palette and styling direction, then invite your bridal party.</p><Action onClick={() => navigate("/events/new")}>Create event</Action></div>}
+    <ProStatusCard open={() => navigate("/upgrade")}/>
+    {events.map((event) => <article key={event.id} className="relative mt-4 rounded-3xl border border-stone-200 bg-white p-5 pr-14"><div className="absolute right-3 top-3"><DeleteEventButton eventId={event.id} eventTitle={event.title} variant="icon" stayOnPage /></div><h2 className="font-serif text-2xl">{event.title}</h2>
       <p className="my-3 text-xs text-stone-500">{event.event_date ?? "Date to be decided"}</p><Action onClick={() => navigate(`/events/${event.id}`)}>Open {event.title}</Action></article>)}</section>;
+}
+
+function NewEventScreen({ revision, navigate, openUpgrade, retry }: { revision: number; navigate: (path: string) => void; openUpgrade: () => void; retry: () => void }) {
+  const result = useRemote<{ events: EventRow[] }>("/api/events", revision);
+  const existingEvent = result.value?.events[0];
+  useEffect(() => {
+    if (existingEvent) navigate(`/events/${existingEvent.id}`);
+  }, [existingEvent, navigate]);
+  if (result.error) return <ResourceError message={result.error} retry={retry}/>;
+  if (!result.value || existingEvent) return <Loading/>;
+  return <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Create your event</h1><EventForm mobileMode onUpgradeRequired={openUpgrade}/></section>;
 }
 
 type EventBundle = { event: EventRow; bride: ParticipantRow; looks: BridalLookView[] };
@@ -187,7 +200,7 @@ export function LiveApp() {
   else if (path === "/login") content = session ? <section className="mobile-home"><Action onClick={() => navigation.replace("/dashboard")}>Open your events</Action></section>
     : <Login returnPath={safeReturnPath(new URLSearchParams(window.location.search).get("next"))}/>;
   else if (path === "/dashboard") content = <Dashboard key={session!.user.id} revision={revision} navigate={navigation.push} retry={navigation.refresh}/>;
-  else if (path === "/events/new") content = <section className="mobile-home"><h1 className="mb-5 font-serif text-3xl">Create your event</h1><EventForm mobileMode onUpgradeRequired={() => navigation.push("/upgrade")}/></section>;
+  else if (path === "/events/new") content = <NewEventScreen revision={revision} navigate={navigation.replace} openUpgrade={() => navigation.push("/upgrade")} retry={navigation.refresh}/>;
   else if (eventMatch) content = <EventScreen key={`${session!.user.id}:${path}`} eventId={eventMatch[1]} screen={eventMatch[2] ?? "detail"} revision={revision} navigate={navigation.push} retry={navigation.refresh}/>;
   else if (inviteMatch) content = <Invite key={inviteMatch[1]} code={inviteMatch[1]} revision={revision} retry={navigation.refresh}/>;
   else if (path === "/upgrade") content = <UpgradePanel appUserId={session!.user.id}/>;

@@ -2,13 +2,23 @@
 
 **See it. Style it. Love it.**
 
-Vows & Vibe is a mobile-first bridal-party styling app. A bride creates one wedding, defines its style and palette, invites bridesmaids, and brings everyone’s confirmed virtual try-on into a shared lineup.
+Vows & Vibe is an Android bridal-party styling application. A bride creates a wedding, defines its style and palette, invites bridesmaids, and brings everyone’s confirmed virtual try-on into a shared lineup.
+
+The Android application is located in [`mobile/`](mobile/). Server-side APIs, authentication callbacks and invitation services are maintained at the repository root and deployed on Vercel.
 
 ## Download the Android app
 
 [Download the latest Vows & Vibe APK](https://github.com/Huzaifa-Aqeel/vowsvibe/releases/latest/download/vowsvibe-android-debug.apk)
 
-Install the downloaded APK on an Android device. Android may ask you to allow installation from your browser or file manager. This is a direct debug build for evaluation and does not require Play Store access.
+Install the downloaded APK on an Android device.
+
+- **Current release:** `v0.1.0` — updated September 30, 2026
+- **SHA-256:** `aec490ec769a63f44c50f51180ffb8150386c4ea14c7da2897d6a2eda33bd54e`
+
+- **Android package:** `com.vowsvibe.mobile`
+- **Mobile source:** [`mobile/src/`](mobile/src/)
+- **Native Android project:** [`mobile/android/`](mobile/android/)
+- **Mobile documentation:** [`mobile/README.md`](mobile/README.md)
 
 ## Product overview
 
@@ -20,7 +30,7 @@ Install the downloaded APK on an Android device. Android may ask you to allow in
 - Bride and bridesmaid dress rails with saved try-on history
 - Shared bridal-party lineup with drag, layering and color filters
 - Direct suggestion conversations between the bride and each bridesmaid
-- AI-generated venue group previews
+- Venue group previews powered by Qwen Image
 - Saved lineup state and PNG export
 - One-time RevenueCat Wedding Pass with shared party access
 
@@ -68,7 +78,7 @@ The app keeps color guidance simple and advisory:
 - No badge is shown when a bridesmaid dress is neither a Family Match nor a Related shade.
 - The bride’s lineup canvas retains Palette Match, Family Match, Related shade and Different family filtering.
 
-Palette relationships use normalized color names, CIE Lab conversion and CIEDE2000 distance where perceptual comparison is useful. Results are styling suggestions rather than scientific or mandatory rules; lighting, cameras, fabric and personal preference still matter.
+skin tone classification use CIE Lab conversion and Palette relationships uses CIEDE2000 distance where perceptual comparison is useful. Results are styling suggestions rather than scientific or mandatory rules; lighting, cameras, fabric and personal preference still matter.
 
 ## Virtual try-on and privacy
 
@@ -104,12 +114,12 @@ The Android app uses RevenueCat for a one-time **Vows & Vibe Pro Wedding Pass**.
 
 Confirmed participant cutouts appear in a Fabric.js canvas controlled by the bride. The bride can reposition people, adjust layering, hide participants, filter by palette relationship, save the arrangement and export a PNG.
 
-For a polished group preview, the bride can add a venue image and request an AI-generated composition through Alibaba Cloud Model Studio’s Qwen Image API. A saved preview becomes visible to the bridal party.
+For a polished group preview, the bride can add a venue image and generate a composition through Alibaba Cloud Model Studio’s Qwen Image API. A saved preview becomes visible to the bridal party.
 
-## Architecture
+## Mobile architecture and supporting services
 
-- **Web and API:** Next.js 16, React 18 and TypeScript, deployed on Vercel
 - **Android app:** Capacitor 8 with a bundled Vite/React frontend
+- **Supporting backend:** Next.js 16 API routes, authentication callbacks and invitation endpoints deployed on Vercel
 - **Auth, database, storage and realtime:** Supabase
 - **Purchases and entitlements:** RevenueCat Capacitor SDK plus server-side verification and webhooks
 - **Virtual try-on and skin analysis:** Perfect Corp YouCam APIs
@@ -174,9 +184,9 @@ The debug APK is intended for direct device installation. A store release requir
 ## Repository map
 
 ```text
-src/
+src/                          # Supporting Next.js backend and shared application code
 ├── app/api/                 # Deployed events, VTO, billing and webhook endpoints
-├── components/              # Bride, bridesmaid, lineup and conversation UI
+├── components/              # Shared bride, bridesmaid, lineup and conversation UI
 └── lib/
     ├── billing/             # RevenueCat verification and cached entitlement state
     ├── color/               # Undertone guide and palette relationships
@@ -185,9 +195,9 @@ src/
     ├── supabase/            # Server and browser Supabase clients
     └── youcam/              # Perfect Corp integration
 
-mobile/
+mobile/                       # Android application
 ├── android/                 # Native Android project
-├── src/                     # Capacitor application shell and purchase UI
+├── src/                     # Bundled mobile application and native integrations
 └── capacitor.config.ts      # Android app configuration
 
 supabase/

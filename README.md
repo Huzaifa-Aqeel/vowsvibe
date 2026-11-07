@@ -204,3 +204,6 @@ supabase/
 ├── migrations/              # RevenueCat and VTO usage-tracking migrations
 └── schema.sql               # Complete database schema
 ```
+
+## Status
+This project won the **DevNetwork [API + Cloud + AI] Hackathon 2026** in the "Perfect Crop" sponsor category, securing a $1,000 prize.
